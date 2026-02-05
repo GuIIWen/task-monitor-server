@@ -52,3 +52,14 @@ func (s *JobService) GetJobParameters(jobID string) ([]model.Parameter, error) {
 func (s *JobService) GetJobCode(jobID string) ([]model.Code, error) {
 	return s.codeRepo.FindByJobID(jobID)
 }
+
+// GetAllJobs 获取所有作业
+func (s *JobService) GetAllJobs() ([]model.Job, error) {
+	return s.jobRepo.FindAll()
+}
+
+// GetJobs 灵活查询作业，支持多条件筛选
+// nodeID和status为空时忽略该条件
+func (s *JobService) GetJobs(nodeID, status string) ([]model.Job, error) {
+	return s.jobRepo.Find(nodeID, status)
+}

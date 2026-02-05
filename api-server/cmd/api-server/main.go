@@ -1,8 +1,10 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/task-monitor/api-server/internal/config"
@@ -12,10 +14,22 @@ import (
 )
 
 func main() {
+	// 支持命令行参数和环境变量指定配置文件路径
+	configPath := flag.String("config", "", "配置文件路径")
+	flag.Parse()
+
+	// 优先级：命令行参数 > 环境变量 > 默认路径
+	if *configPath == "" {
+		*configPath = os.Getenv("API_SERVER_CONFIG")
+	}
+	if *configPath == "" {
+		*configPath = "configs/api-server.yaml"
+	}
+
 	// 加载配置
-	cfg, err := config.LoadConfig("configs/api-server.yaml")
+	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		log.Fatalf("Failed to load config from %s: %v", *configPath, err)
 	}
 
 	// 初始化数据库

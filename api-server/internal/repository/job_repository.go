@@ -39,3 +39,27 @@ func (r *JobRepository) FindByStatus(status string) ([]model.Job, error) {
 	err := r.db.Where("status = ?", status).Find(&jobs).Error
 	return jobs, err
 }
+
+// FindAll 查找所有作业
+func (r *JobRepository) FindAll() ([]model.Job, error) {
+	var jobs []model.Job
+	err := r.db.Find(&jobs).Error
+	return jobs, err
+}
+
+// Find 灵活查询作业，支持多条件筛选
+// nodeID和status为空时忽略该条件
+func (r *JobRepository) Find(nodeID, status string) ([]model.Job, error) {
+	var jobs []model.Job
+	query := r.db
+
+	if nodeID != "" {
+		query = query.Where("node_id = ?", nodeID)
+	}
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+
+	err := query.Find(&jobs).Error
+	return jobs, err
+}

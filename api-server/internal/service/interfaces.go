@@ -14,6 +14,8 @@ type JobServiceInterface interface {
 	GetJobByID(jobID string) (*model.Job, error)
 	GetJobsByNodeID(nodeID string) ([]model.Job, error)
 	GetJobsByStatus(status string) ([]model.Job, error)
+	GetAllJobs() ([]model.Job, error)
+	GetJobs(nodeID, status string) ([]model.Job, error) // 灵活查询，支持多条件筛选
 	GetJobParameters(jobID string) ([]model.Parameter, error)
 	GetJobCode(jobID string) ([]model.Code, error)
 }

@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"errors"
+
 	"github.com/gin-gonic/gin"
 	"github.com/task-monitor/api-server/internal/service"
 	"github.com/task-monitor/api-server/internal/utils"
+	"gorm.io/gorm"
 )
 
 // NodeHandler 节点处理器
@@ -45,7 +48,12 @@ func (h *NodeHandler) GetNodeByID(c *gin.Context) {
 
 	node, err := h.nodeService.GetNodeByID(nodeID)
 	if err != nil {
-		utils.ErrorResponse(c, 404, "Node not found")
+		// 区分记录不存在和数据库错误
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			utils.ErrorResponse(c, 404, "Node not found")
+		} else {
+			utils.ErrorResponse(c, 500, "Database error: "+err.Error())
+		}
 		return
 	}
 

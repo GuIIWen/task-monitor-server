@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"errors"
+
 	"github.com/gin-gonic/gin"
 	"github.com/task-monitor/api-server/internal/service"
 	"github.com/task-monitor/api-server/internal/utils"
+	"gorm.io/gorm"
 )
 
 // JobHandler 作业处理器
@@ -19,25 +22,16 @@ func NewJobHandler(jobService service.JobServiceInterface) *JobHandler {
 }
 
 // GetJobs 获取作业列表
+// 支持多条件筛选：nodeId和status可以单独使用或组合使用
+// 无参数时返回全量查询
 func (h *JobHandler) GetJobs(c *gin.Context) {
 	status := c.Query("status")
 	nodeID := c.Query("nodeId")
 
-	var jobs interface{}
-	var err error
-
-	if nodeID != "" {
-		jobs, err = h.jobService.GetJobsByNodeID(nodeID)
-	} else if status != "" {
-		jobs, err = h.jobService.GetJobsByStatus(status)
-	} else {
-		// TODO: 实现完整的作业列表查询（带分页）
-		utils.ErrorResponse(c, 400, "Please provide nodeId or status parameter")
-		return
-	}
-
+	// 使用灵活查询方法，支持多条件筛选和全量查询
+	jobs, err := h.jobService.GetJobs(nodeID, status)
 	if err != nil {
-		utils.ErrorResponse(c, 500, err.Error())
+		utils.ErrorResponse(c, 500, "Database error: "+err.Error())
 		return
 	}
 
@@ -50,7 +44,12 @@ func (h *JobHandler) GetJobByID(c *gin.Context) {
 
 	job, err := h.jobService.GetJobByID(jobID)
 	if err != nil {
-		utils.ErrorResponse(c, 404, "Job not found")
+		// 区分记录不存在和数据库错误
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			utils.ErrorResponse(c, 404, "Job not found")
+		} else {
+			utils.ErrorResponse(c, 500, "Database error: "+err.Error())
+		}
 		return
 	}
 

@@ -42,6 +42,16 @@ func (m *MockJobRepository) FindByStatus(status string) ([]model.Job, error) {
 	return args.Get(0).([]model.Job), args.Error(1)
 }
 
+func (m *MockJobRepository) FindAll() ([]model.Job, error) {
+	args := m.Called()
+	return args.Get(0).([]model.Job), args.Error(1)
+}
+
+func (m *MockJobRepository) Find(nodeID, status string) ([]model.Job, error) {
+	args := m.Called(nodeID, status)
+	return args.Get(0).([]model.Job), args.Error(1)
+}
+
 func (m *MockJobRepository) UpdateStatus(jobID, status, reason string) error {
 	args := m.Called(jobID, status, reason)
 	return args.Error(0)
