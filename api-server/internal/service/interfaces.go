@@ -7,6 +7,7 @@ type NodeServiceInterface interface {
 	GetNodes() ([]model.Node, error)
 	GetNodeByID(nodeID string) (*model.Node, error)
 	GetNodesByStatus(status string) ([]model.Node, error)
+	GetNodeStats() (map[string]int64, error)
 }
 
 // JobServiceInterface defines the interface for job service operations
@@ -18,4 +19,5 @@ type JobServiceInterface interface {
 	GetJobs(nodeID, status string, page, pageSize int) ([]model.Job, int64, error) // 灵活查询，支持多条件筛选和分页
 	GetJobParameters(jobID string) ([]model.Parameter, error)
 	GetJobCode(jobID string) ([]model.Code, error)
+	GetJobStats() (map[string]int64, error)
 }

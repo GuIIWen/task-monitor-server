@@ -107,3 +107,14 @@ func (h *JobHandler) GetJobCode(c *gin.Context) {
 
 	utils.SuccessResponse(c, code)
 }
+
+// GetJobStats 获取作业统计信息
+func (h *JobHandler) GetJobStats(c *gin.Context) {
+	stats, err := h.jobService.GetJobStats()
+	if err != nil {
+		utils.ErrorResponse(c, 500, "Database error: "+err.Error())
+		return
+	}
+
+	utils.SuccessResponse(c, stats)
+}

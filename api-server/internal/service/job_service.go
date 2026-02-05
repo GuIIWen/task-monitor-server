@@ -81,3 +81,39 @@ func (s *JobService) GetJobs(nodeID, status string, page, pageSize int) ([]model
 
 	return jobs, total, nil
 }
+
+// GetJobStats 获取作业统计信息
+func (s *JobService) GetJobStats() (map[string]int64, error) {
+	jobs, err := s.jobRepo.FindAll()
+	if err != nil {
+		return nil, err
+	}
+
+	stats := map[string]int64{
+		"total":     int64(len(jobs)),
+		"running":   0,
+		"completed": 0,
+		"failed":    0,
+		"stopped":   0,
+		"lost":      0,
+	}
+
+	for _, job := range jobs {
+		if job.Status != nil {
+			switch *job.Status {
+			case "running":
+				stats["running"]++
+			case "completed":
+				stats["completed"]++
+			case "failed":
+				stats["failed"]++
+			case "stopped":
+				stats["stopped"]++
+			case "lost":
+				stats["lost"]++
+			}
+		}
+	}
+
+	return stats, nil
+}

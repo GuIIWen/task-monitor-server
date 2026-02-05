@@ -56,6 +56,11 @@ func (m *MockJobService) GetJobs(nodeID, status string, page, pageSize int) ([]m
 	return args.Get(0).([]model.Job), args.Get(1).(int64), args.Error(2)
 }
 
+func (m *MockJobService) GetJobStats() (map[string]int64, error) {
+	args := m.Called()
+	return args.Get(0).(map[string]int64), args.Error(1)
+}
+
 func TestJobHandler_GetJobs_ByNodeID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

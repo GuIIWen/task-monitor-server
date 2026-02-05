@@ -37,6 +37,11 @@ func (m *MockNodeService) GetNodesByStatus(status string) ([]model.Node, error) 
 	return args.Get(0).([]model.Node), args.Error(1)
 }
 
+func (m *MockNodeService) GetNodeStats() (map[string]int64, error) {
+	args := m.Called()
+	return args.Get(0).(map[string]int64), args.Error(1)
+}
+
 func TestNodeHandler_GetNodes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

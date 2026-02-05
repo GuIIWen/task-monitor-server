@@ -73,6 +73,7 @@ func main() {
 		nodes := api.Group("/nodes")
 		{
 			nodes.GET("", nodeHandler.GetNodes)
+			nodes.GET("/stats", nodeHandler.GetNodeStats)
 			nodes.GET("/:nodeId", nodeHandler.GetNodeByID)
 		}
 
@@ -80,6 +81,7 @@ func main() {
 		jobs := api.Group("/jobs")
 		{
 			jobs.GET("", jobHandler.GetJobs)
+			jobs.GET("/stats", jobHandler.GetJobStats)
 			jobs.GET("/:jobId", jobHandler.GetJobByID)
 			jobs.GET("/:jobId/parameters", jobHandler.GetJobParameters)
 			jobs.GET("/:jobId/code", jobHandler.GetJobCode)

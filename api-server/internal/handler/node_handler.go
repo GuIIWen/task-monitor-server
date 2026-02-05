@@ -59,3 +59,14 @@ func (h *NodeHandler) GetNodeByID(c *gin.Context) {
 
 	utils.SuccessResponse(c, node)
 }
+
+// GetNodeStats 获取节点统计信息
+func (h *NodeHandler) GetNodeStats(c *gin.Context) {
+	stats, err := h.nodeService.GetNodeStats()
+	if err != nil {
+		utils.ErrorResponse(c, 500, "Database error: "+err.Error())
+		return
+	}
+
+	utils.SuccessResponse(c, stats)
+}
