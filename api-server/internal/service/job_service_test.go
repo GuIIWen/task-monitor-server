@@ -107,6 +107,9 @@ type MockMetricsRepository struct {
 	mock.Mock
 }
 
+// IsMetricsRepository 实现MetricsRepositoryInterface的标记方法
+func (m *MockMetricsRepository) IsMetricsRepository() {}
+
 func (m *MockMetricsRepository) CreateNPUMetric(metric *model.NPUMetric) error {
 	args := m.Called(metric)
 	return args.Error(0)

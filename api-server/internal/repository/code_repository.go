@@ -6,6 +6,7 @@ import (
 )
 
 // CodeRepository 代码数据访问层
+// API Server只负责查询，不负责写入
 type CodeRepository struct {
 	db *gorm.DB
 }
@@ -15,33 +16,9 @@ func NewCodeRepository(db *gorm.DB) *CodeRepository {
 	return &CodeRepository{db: db}
 }
 
-// Create 创建代码记录
-func (r *CodeRepository) Create(code *model.Code) error {
-	return r.db.Create(code).Error
-}
-
 // FindByJobID 根据作业ID查找代码
 func (r *CodeRepository) FindByJobID(jobID string) ([]model.Code, error) {
 	var codes []model.Code
-	err := r.db.Where("job_id = ?", jobID).
-		Order("timestamp DESC").
-		Find(&codes).Error
+	err := r.db.Where("job_id = ?", jobID).Order("timestamp DESC").Find(&codes).Error
 	return codes, err
-}
-
-// FindLatestByJobID 查找作业的最新代码
-func (r *CodeRepository) FindLatestByJobID(jobID string) (*model.Code, error) {
-	var code model.Code
-	err := r.db.Where("job_id = ?", jobID).
-		Order("timestamp DESC").
-		First(&code).Error
-	if err != nil {
-		return nil, err
-	}
-	return &code, nil
-}
-
-// BatchCreate 批量创建代码记录
-func (r *CodeRepository) BatchCreate(codes []model.Code) error {
-	return r.db.Create(&codes).Error
 }

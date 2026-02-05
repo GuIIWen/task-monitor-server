@@ -6,6 +6,7 @@ import (
 )
 
 // NodeRepository 节点数据访问层
+// API Server只负责查询，不负责写入
 type NodeRepository struct {
 	db *gorm.DB
 }
@@ -13,16 +14,6 @@ type NodeRepository struct {
 // NewNodeRepository 创建节点Repository
 func NewNodeRepository(db *gorm.DB) *NodeRepository {
 	return &NodeRepository{db: db}
-}
-
-// Create 创建节点
-func (r *NodeRepository) Create(node *model.Node) error {
-	return r.db.Create(node).Error
-}
-
-// Update 更新节点
-func (r *NodeRepository) Update(node *model.Node) error {
-	return r.db.Save(node).Error
 }
 
 // FindByID 根据ID查找节点
@@ -47,16 +38,4 @@ func (r *NodeRepository) FindByStatus(status string) ([]model.Node, error) {
 	var nodes []model.Node
 	err := r.db.Where("status = ?", status).Find(&nodes).Error
 	return nodes, err
-}
-
-// UpdateHeartbeat 更新节点心跳时间
-func (r *NodeRepository) UpdateHeartbeat(nodeID string) error {
-	return r.db.Model(&model.Node{}).
-		Where("node_id = ?", nodeID).
-		Update("last_heartbeat", gorm.Expr("NOW()")).Error
-}
-
-// Upsert 插入或更新节点
-func (r *NodeRepository) Upsert(node *model.Node) error {
-	return r.db.Save(node).Error
 }
