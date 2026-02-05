@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/task-monitor/api-server/internal/service"
@@ -28,14 +29,39 @@ func (h *JobHandler) GetJobs(c *gin.Context) {
 	status := c.Query("status")
 	nodeID := c.Query("nodeId")
 
-	// 使用灵活查询方法，支持多条件筛选和全量查询
-	jobs, err := h.jobService.GetJobs(nodeID, status)
+	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if err != nil || page < 1 {
+		page = 1
+	}
+	pageSize, err := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
+	if err != nil || pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	// 使用灵活查询方法，支持多条件筛选和分页查询
+	jobs, total, err := h.jobService.GetJobs(nodeID, status, page, pageSize)
 	if err != nil {
 		utils.ErrorResponse(c, 500, "Database error: "+err.Error())
 		return
 	}
 
-	utils.SuccessResponse(c, jobs)
+	totalPages := int64(0)
+	if pageSize > 0 {
+		totalPages = (total + int64(pageSize) - 1) / int64(pageSize)
+	}
+
+	utils.SuccessResponse(c, utils.PaginationResponse{
+		Items: jobs,
+		Pagination: utils.Pagination{
+			Page:       page,
+			PageSize:   pageSize,
+			Total:      total,
+			TotalPages: totalPages,
+		},
+	})
 }
 
 // GetJobByID 获取作业详情

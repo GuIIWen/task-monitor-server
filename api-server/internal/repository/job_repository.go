@@ -47,9 +47,9 @@ func (r *JobRepository) FindAll() ([]model.Job, error) {
 	return jobs, err
 }
 
-// Find 灵活查询作业，支持多条件筛选
+// Find 灵活查询作业，支持多条件筛选和分页
 // nodeID和status为空时忽略该条件
-func (r *JobRepository) Find(nodeID, status string) ([]model.Job, error) {
+func (r *JobRepository) Find(nodeID, status string, limit, offset int) ([]model.Job, error) {
 	var jobs []model.Job
 	query := r.db
 
@@ -60,6 +60,30 @@ func (r *JobRepository) Find(nodeID, status string) ([]model.Job, error) {
 		query = query.Where("status = ?", status)
 	}
 
-	err := query.Find(&jobs).Error
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	if offset > 0 {
+		query = query.Offset(offset)
+	}
+
+	err := query.Order("start_time DESC, job_id DESC").Find(&jobs).Error
 	return jobs, err
+}
+
+// Count 统计符合条件的作业数量
+// nodeID和status为空时忽略该条件
+func (r *JobRepository) Count(nodeID, status string) (int64, error) {
+	var total int64
+	query := r.db.Model(&model.Job{})
+
+	if nodeID != "" {
+		query = query.Where("node_id = ?", nodeID)
+	}
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+
+	err := query.Count(&total).Error
+	return total, err
 }

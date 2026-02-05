@@ -18,7 +18,7 @@ func TestParameterRepository_FindByJobID(t *testing.T) {
 		AddRow(1, "job-001", "learning_rate=0.001", `{"learning_rate": 0.001}`).
 		AddRow(2, "job-001", "batch_size=32", `{"batch_size": 32}`)
 
-	mock.ExpectQuery("SELECT \\* FROM `parameters` WHERE job_id = \\?").
+	mock.ExpectQuery("SELECT \\* FROM `parameters` WHERE job_id = \\? ORDER BY .*timestamp.* DESC").
 		WithArgs(jobID).
 		WillReturnRows(rows)
 

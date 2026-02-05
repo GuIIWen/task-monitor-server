@@ -18,7 +18,7 @@ func TestCodeRepository_FindByJobID(t *testing.T) {
 		AddRow(1, "job-001", "/path/to/script.py", "print('hello')").
 		AddRow(2, "job-001", "/path/to/config.yaml", "key: value")
 
-	mock.ExpectQuery("SELECT \\* FROM `code` WHERE job_id = \\?").
+	mock.ExpectQuery("SELECT \\* FROM `code` WHERE job_id = \\? ORDER BY .*timestamp.* DESC").
 		WithArgs(jobID).
 		WillReturnRows(rows)
 

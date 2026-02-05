@@ -51,9 +51,9 @@ func (m *MockJobService) GetAllJobs() ([]model.Job, error) {
 	return args.Get(0).([]model.Job), args.Error(1)
 }
 
-func (m *MockJobService) GetJobs(nodeID, status string) ([]model.Job, error) {
-	args := m.Called(nodeID, status)
-	return args.Get(0).([]model.Job), args.Error(1)
+func (m *MockJobService) GetJobs(nodeID, status string, page, pageSize int) ([]model.Job, int64, error) {
+	args := m.Called(nodeID, status, page, pageSize)
+	return args.Get(0).([]model.Job), args.Get(1).(int64), args.Error(2)
 }
 
 func TestJobHandler_GetJobs_ByNodeID(t *testing.T) {
@@ -68,7 +68,7 @@ func TestJobHandler_GetJobs_ByNodeID(t *testing.T) {
 		{JobID: "job-001", NodeID: &nodeID, JobName: &jobName},
 	}
 
-	mockService.On("GetJobs", "node-001", "").Return(expectedJobs, nil)
+	mockService.On("GetJobs", "node-001", "", 1, 20).Return(expectedJobs, int64(1), nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -82,6 +82,11 @@ func TestJobHandler_GetJobs_ByNodeID(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
 	assert.Equal(t, float64(200), response["code"])
+	data := response["data"].(map[string]interface{})
+	pagination := data["pagination"].(map[string]interface{})
+	assert.Equal(t, float64(1), pagination["page"])
+	assert.Equal(t, float64(20), pagination["pageSize"])
+	assert.Equal(t, float64(1), pagination["total"])
 
 	mockService.AssertExpectations(t)
 }
@@ -97,7 +102,7 @@ func TestJobHandler_GetJobs_ByStatus(t *testing.T) {
 		{JobID: "job-001", Status: &status},
 	}
 
-	mockService.On("GetJobs", "", "running").Return(expectedJobs, nil)
+	mockService.On("GetJobs", "", "running", 1, 20).Return(expectedJobs, int64(1), nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -116,7 +121,7 @@ func TestJobHandler_GetJobs_NoParams(t *testing.T) {
 	handler := NewJobHandler(mockService)
 
 	expectedJobs := []model.Job{}
-	mockService.On("GetJobs", "", "").Return(expectedJobs, nil)
+	mockService.On("GetJobs", "", "", 1, 20).Return(expectedJobs, int64(0), nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

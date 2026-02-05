@@ -47,9 +47,14 @@ func (m *MockJobRepository) FindAll() ([]model.Job, error) {
 	return args.Get(0).([]model.Job), args.Error(1)
 }
 
-func (m *MockJobRepository) Find(nodeID, status string) ([]model.Job, error) {
-	args := m.Called(nodeID, status)
+func (m *MockJobRepository) Find(nodeID, status string, limit, offset int) ([]model.Job, error) {
+	args := m.Called(nodeID, status, limit, offset)
 	return args.Get(0).([]model.Job), args.Error(1)
+}
+
+func (m *MockJobRepository) Count(nodeID, status string) (int64, error) {
+	args := m.Called(nodeID, status)
+	return args.Get(0).(int64), args.Error(1)
 }
 
 func (m *MockJobRepository) UpdateStatus(jobID, status, reason string) error {
@@ -270,4 +275,31 @@ func TestJobService_GetJobCode(t *testing.T) {
 	assert.Len(t, codes, 1)
 	assert.Equal(t, "/path/to/script.py", *codes[0].ScriptPath)
 	mockCodeRepo.AssertExpectations(t)
+}
+
+func TestJobService_GetJobs(t *testing.T) {
+	mockJobRepo := new(MockJobRepository)
+	mockParamRepo := new(MockParameterRepository)
+	mockCodeRepo := new(MockCodeRepository)
+	mockMetricsRepo := new(MockMetricsRepository)
+
+	service := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
+
+	nodeID := "node-001"
+	status := "running"
+	jobName := "test-job"
+	expectedJobs := []model.Job{
+		{JobID: "job-001", NodeID: &nodeID, JobName: &jobName, Status: &status},
+	}
+
+	mockJobRepo.On("Count", nodeID, status).Return(int64(25), nil)
+	mockJobRepo.On("Find", nodeID, status, 10, 10).Return(expectedJobs, nil)
+
+	jobs, total, err := service.GetJobs(nodeID, status, 2, 10)
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(25), total)
+	assert.Len(t, jobs, 1)
+	assert.Equal(t, "job-001", jobs[0].JobID)
+	mockJobRepo.AssertExpectations(t)
 }

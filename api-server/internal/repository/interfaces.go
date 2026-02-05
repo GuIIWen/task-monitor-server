@@ -17,7 +17,8 @@ type JobRepositoryInterface interface {
 	FindByNodeID(nodeID string) ([]model.Job, error)
 	FindByStatus(status string) ([]model.Job, error)
 	FindAll() ([]model.Job, error)
-	Find(nodeID, status string) ([]model.Job, error) // 灵活查询，支持多条件筛选
+	Find(nodeID, status string, limit, offset int) ([]model.Job, error) // 灵活查询，支持多条件筛选和分页
+	Count(nodeID, status string) (int64, error)
 }
 
 // ParameterRepositoryInterface defines the interface for parameter repository operations
