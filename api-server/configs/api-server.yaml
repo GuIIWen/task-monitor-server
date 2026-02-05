@@ -1,0 +1,23 @@
+server:
+  port: 8080
+  mode: release  # debug, release
+
+database:
+  host: localhost
+  port: 3306
+  user: root
+  password: password
+  database: task_monitor
+  max_open_conns: 50
+  max_idle_conns: 10
+
+redis:
+  enabled: true
+  host: localhost
+  port: 6379
+  password: ""
+  db: 0
+
+log:
+  level: info  # debug, info, warn, error
+  file: /var/log/api-server.log
