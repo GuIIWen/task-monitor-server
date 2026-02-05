@@ -2,7 +2,6 @@ package handler
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/task-monitor/api-server/internal/model"
+	"gorm.io/gorm"
 )
 
 // MockJobService is a mock implementation of JobService
@@ -46,6 +46,16 @@ func (m *MockJobService) GetJobCode(jobID string) ([]model.Code, error) {
 	return args.Get(0).([]model.Code), args.Error(1)
 }
 
+func (m *MockJobService) GetAllJobs() ([]model.Job, error) {
+	args := m.Called()
+	return args.Get(0).([]model.Job), args.Error(1)
+}
+
+func (m *MockJobService) GetJobs(nodeID, status string) ([]model.Job, error) {
+	args := m.Called(nodeID, status)
+	return args.Get(0).([]model.Job), args.Error(1)
+}
+
 func TestJobHandler_GetJobs_ByNodeID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -58,7 +68,7 @@ func TestJobHandler_GetJobs_ByNodeID(t *testing.T) {
 		{JobID: "job-001", NodeID: &nodeID, JobName: &jobName},
 	}
 
-	mockService.On("GetJobsByNodeID", "node-001").Return(expectedJobs, nil)
+	mockService.On("GetJobs", "node-001", "").Return(expectedJobs, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -87,7 +97,7 @@ func TestJobHandler_GetJobs_ByStatus(t *testing.T) {
 		{JobID: "job-001", Status: &status},
 	}
 
-	mockService.On("GetJobsByStatus", "running").Return(expectedJobs, nil)
+	mockService.On("GetJobs", "", "running").Return(expectedJobs, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -105,13 +115,17 @@ func TestJobHandler_GetJobs_NoParams(t *testing.T) {
 	mockService := new(MockJobService)
 	handler := NewJobHandler(mockService)
 
+	expectedJobs := []model.Job{}
+	mockService.On("GetJobs", "", "").Return(expectedJobs, nil)
+
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/v1/jobs", nil)
 
 	handler.GetJobs(c)
 
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockService.AssertExpectations(t)
 }
 
 func TestJobHandler_GetJobByID(t *testing.T) {
@@ -145,7 +159,7 @@ func TestJobHandler_GetJobByID_NotFound(t *testing.T) {
 	mockService := new(MockJobService)
 	handler := NewJobHandler(mockService)
 
-	mockService.On("GetJobByID", "non-existent").Return(nil, errors.New("not found"))
+	mockService.On("GetJobByID", "non-existent").Return(nil, gorm.ErrRecordNotFound)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

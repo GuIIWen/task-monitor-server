@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/task-monitor/api-server/internal/model"
+	"gorm.io/gorm"
 )
 
 // MockNodeService is a mock implementation of NodeService
@@ -147,7 +148,7 @@ func TestNodeHandler_GetNodeByID_NotFound(t *testing.T) {
 	mockService := new(MockNodeService)
 	handler := NewNodeHandler(mockService)
 
-	mockService.On("GetNodeByID", "non-existent").Return(nil, errors.New("not found"))
+	mockService.On("GetNodeByID", "non-existent").Return(nil, gorm.ErrRecordNotFound)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
