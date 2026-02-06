@@ -4,6 +4,7 @@ import type { TablePaginationConfig, SorterResult, FilterValue } from 'antd/es/t
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { StatusBadge } from '@/components/Common';
 import { useGroupedJobs } from '@/hooks/useJobs';
+import { useNodes } from '@/hooks/useNodes';
 import { formatTimestamp, JOB_TYPE_MAP } from '@/utils';
 import type { Job, JobListParams, JobGroup } from '@/types/job';
 
@@ -20,6 +21,7 @@ const JobList: React.FC = () => {
     const status = searchParams.getAll('status');
     const type = searchParams.getAll('type');
     const framework = searchParams.getAll('framework');
+    const nodeId = searchParams.get('nodeId') || undefined;
 
     return {
       page,
@@ -29,10 +31,18 @@ const JobList: React.FC = () => {
       status: status.length > 0 ? status : undefined,
       type: type.length > 0 ? type : undefined,
       framework: framework.length > 0 ? framework : undefined,
+      nodeId,
     };
   });
 
   const { data, isLoading } = useGroupedJobs(params);
+  const { data: nodesData } = useNodes();
+
+  // 动态生成节点筛选选项
+  const nodeFilters = (nodesData || []).map((n: any) => ({
+    text: n.hostname || n.nodeId,
+    value: n.nodeId,
+  }));
 
   // 处理表格变化（分页、排序、筛选）
   const handleTableChange = (
@@ -61,6 +71,9 @@ const JobList: React.FC = () => {
     if (filters.framework) {
       newParams.framework = filters.framework as string[];
     }
+    if (filters.nodeId && filters.nodeId.length > 0) {
+      newParams.nodeId = filters.nodeId[0] as string;
+    }
 
     // 更新状态
     setParams(newParams);
@@ -84,6 +97,9 @@ const JobList: React.FC = () => {
     }
     if (newParams.framework) {
       newParams.framework.forEach(f => newSearchParams.append('framework', f));
+    }
+    if (newParams.nodeId) {
+      newSearchParams.set('nodeId', newParams.nodeId);
     }
 
     setSearchParams(newSearchParams);
@@ -134,9 +150,15 @@ const JobList: React.FC = () => {
       title: '节点',
       dataIndex: ['mainJob', 'nodeId'],
       key: 'nodeId',
+      filters: nodeFilters,
+      filteredValue: params.nodeId ? [params.nodeId] : null,
+      filterMultiple: false,
       sorter: true,
       sortOrder: params.sortBy === 'nodeId' ? (params.sortOrder === 'asc' ? 'ascend' : 'descend') : null,
-      render: (text: string) => text || '-',
+      render: (text: string) => {
+        const node = (nodesData || []).find((n: any) => n.nodeId === text);
+        return node?.hostname || text || '-';
+      },
     },
     {
       title: '状态',
@@ -169,6 +191,15 @@ const JobList: React.FC = () => {
       dataIndex: 'cardCount',
       key: 'cardCount',
       width: 80,
+      filters: [
+        { text: '单卡', value: '1' },
+        { text: '多卡', value: 'multi' },
+      ],
+      onFilter: (value: any, record: JobGroup) => {
+        if (value === '1') return record.cardCount === 1;
+        if (value === 'multi') return record.cardCount > 1;
+        return true;
+      },
       render: (count: number) => (
         <Tag color={count > 1 ? 'orange' : 'default'}>{count}</Tag>
       ),
