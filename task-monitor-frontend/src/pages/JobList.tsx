@@ -38,6 +38,9 @@ const JobList: React.FC = () => {
   const { data, isLoading } = useGroupedJobs(params);
   const { data: nodesData } = useNodes();
 
+  // 卡数客户端筛选状态
+  const [cardCountFilter, setCardCountFilter] = useState<number[]>([]);
+
   // 动态生成节点筛选选项
   const nodeFilters = (nodesData || []).map((n: any) => ({
     text: n.hostname || n.nodeId,
@@ -77,6 +80,9 @@ const JobList: React.FC = () => {
     if (filters.nodeId && filters.nodeId.length > 0) {
       newParams.nodeId = filters.nodeId[0] as string;
     }
+
+    // 卡数客户端筛选
+    setCardCountFilter(filters.cardCount ? (filters.cardCount as number[]) : []);
 
     // 更新状态
     setParams(newParams);
@@ -195,7 +201,7 @@ const JobList: React.FC = () => {
       key: 'cardCount',
       width: 80,
       filters: cardCountFilters,
-      onFilter: (value: any, record: JobGroup) => record.cardCount === value,
+      filteredValue: cardCountFilter.length > 0 ? cardCountFilter : null,
       sorter: (a: JobGroup, b: JobGroup) => a.cardCount - b.cardCount,
       render: (count: number) => (
         <Tag color={count > 1 ? 'orange' : 'default'}>{count}</Tag>
@@ -253,10 +259,14 @@ const JobList: React.FC = () => {
     },
   ];
 
+  const filteredItems = (data?.items || []).filter((g: JobGroup) =>
+    cardCountFilter.length === 0 || cardCountFilter.includes(g.cardCount)
+  );
+
   return (
     <Table<JobGroup>
       columns={columns}
-      dataSource={data?.items || []}
+      dataSource={filteredItems}
       loading={isLoading}
       rowKey={(record) => record.mainJob.jobId}
       onChange={handleTableChange}
