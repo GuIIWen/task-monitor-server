@@ -95,6 +95,7 @@ const JobList: React.FC = () => {
       dataIndex: 'jobName',
       key: 'jobName',
       sorter: true,
+      sortOrder: params.sortBy === 'jobName' ? (params.sortOrder === 'asc' ? 'ascend' : 'descend') : null,
       render: (text: string, record: Job) => text || record.jobId,
     },
     {
@@ -107,7 +108,9 @@ const JobList: React.FC = () => {
         { text: '测试', value: 'testing' },
         { text: '未知', value: 'unknown' },
       ],
+      filteredValue: params.type || null,
       sorter: true,
+      sortOrder: params.sortBy === 'jobType' ? (params.sortOrder === 'asc' ? 'ascend' : 'descend') : null,
       render: (type: Job['jobType']) => (
         type ? <Tag>{JOB_TYPE_MAP[type] || type}</Tag> : '-'
       ),
@@ -122,7 +125,9 @@ const JobList: React.FC = () => {
         { text: 'MindSpore', value: 'mindspore' },
         { text: '其他', value: 'other' },
       ],
+      filteredValue: params.framework || null,
       sorter: true,
+      sortOrder: params.sortBy === 'framework' ? (params.sortOrder === 'asc' ? 'ascend' : 'descend') : null,
       render: (text: string) => text ? <Tag color="blue">{text}</Tag> : '-',
     },
     {
@@ -130,6 +135,7 @@ const JobList: React.FC = () => {
       dataIndex: 'nodeId',
       key: 'nodeId',
       sorter: true,
+      sortOrder: params.sortBy === 'nodeId' ? (params.sortOrder === 'asc' ? 'ascend' : 'descend') : null,
       render: (text: string) => text || '-',
     },
     {
@@ -143,7 +149,9 @@ const JobList: React.FC = () => {
         { text: '已停止', value: 'stopped' },
         { text: '丢失', value: 'lost' },
       ],
+      filteredValue: params.status || null,
       sorter: true,
+      sortOrder: params.sortBy === 'status' ? (params.sortOrder === 'asc' ? 'ascend' : 'descend') : null,
       render: (status: Job['status']) => (
         <StatusBadge status={status} type="job" />
       ),
@@ -153,6 +161,7 @@ const JobList: React.FC = () => {
       dataIndex: 'startTime',
       key: 'startTime',
       sorter: true,
+      sortOrder: params.sortBy === 'startTime' ? (params.sortOrder === 'asc' ? 'ascend' : 'descend') : null,
       render: (time: number) => formatTimestamp(time),
     },
     {
