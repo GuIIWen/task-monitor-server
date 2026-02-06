@@ -44,7 +44,10 @@ const JobList: React.FC = () => {
     value: n.nodeId,
   }));
 
-  // 处理表格变化（分页、排序、筛选）
+  // 动态生成卡数筛选选项
+  const cardCountFilters = Array.from(
+    new Set((data?.items || []).map((g: JobGroup) => g.cardCount))
+  ).sort((a, b) => a - b).map(c => ({ text: String(c), value: c }));
   const handleTableChange = (
     pagination: TablePaginationConfig,
     filters: Record<string, FilterValue | null>,
@@ -191,15 +194,9 @@ const JobList: React.FC = () => {
       dataIndex: 'cardCount',
       key: 'cardCount',
       width: 80,
-      filters: [
-        { text: '单卡', value: '1' },
-        { text: '多卡', value: 'multi' },
-      ],
-      onFilter: (value: any, record: JobGroup) => {
-        if (value === '1') return record.cardCount === 1;
-        if (value === 'multi') return record.cardCount > 1;
-        return true;
-      },
+      filters: cardCountFilters,
+      onFilter: (value: any, record: JobGroup) => record.cardCount === value,
+      sorter: (a: JobGroup, b: JobGroup) => a.cardCount - b.cardCount,
       render: (count: number) => (
         <Tag color={count > 1 ? 'orange' : 'default'}>{count}</Tag>
       ),
