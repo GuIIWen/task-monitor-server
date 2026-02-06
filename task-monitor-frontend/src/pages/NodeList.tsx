@@ -35,6 +35,12 @@ const NodeList: React.FC = () => {
       render: (count: number) => count || 0,
     },
     {
+      title: '卡型号',
+      dataIndex: 'npuModel',
+      key: 'npuModel',
+      render: (text: string) => text || '-',
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       key: 'status',

@@ -35,6 +35,7 @@ const NodeDetail: React.FC = () => {
           <Descriptions.Item label="主机名">{node.hostname || '-'}</Descriptions.Item>
           <Descriptions.Item label="IP地址">{node.ipAddress || '-'}</Descriptions.Item>
           <Descriptions.Item label="NPU数量">{node.npuCount || 0}</Descriptions.Item>
+          <Descriptions.Item label="卡型号">{node.npuModel || '-'}</Descriptions.Item>
           <Descriptions.Item label="状态">
             <StatusBadge status={node.status} type="node" />
           </Descriptions.Item>

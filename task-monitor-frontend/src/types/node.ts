@@ -5,6 +5,7 @@ export interface Node {
   hostname: string | null;
   ipAddress: string | null;
   npuCount: number | null;
+  npuModel: string | null;
   status: 'active' | 'inactive' | 'error' | null;
   lastHeartbeat: string | null;  // ISO 8601 格式
   createdAt: string;

@@ -9,6 +9,7 @@ type Node struct {
 	Hostname      *string    `gorm:"column:hostname" json:"hostname"`
 	IPAddress     *string    `gorm:"column:ip_address" json:"ipAddress"`
 	NPUCount      *int       `gorm:"column:npu_count" json:"npuCount"`
+	NPUModel      *string    `gorm:"column:npu_model" json:"npuModel"`
 	Status        *string    `gorm:"column:status" json:"status"`
 	LastHeartbeat *time.Time `gorm:"column:last_heartbeat" json:"lastHeartbeat"`
 	CreatedAt     time.Time  `gorm:"column:created_at" json:"createdAt"`
