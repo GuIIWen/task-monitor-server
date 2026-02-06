@@ -1,25 +1,57 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Table, Space, Button, Tag } from 'antd';
+import type { TablePaginationConfig, SorterResult, FilterValue } from 'antd/es/table/interface';
 import { useNavigate } from 'react-router-dom';
 import { StatusBadge } from '@/components/Common';
 import { useJobs } from '@/hooks';
 import { formatTimestamp, JOB_TYPE_MAP } from '@/utils';
-import type { Job } from '@/types/job';
+import type { Job, JobListParams } from '@/types/job';
 
 const JobList: React.FC = () => {
   const navigate = useNavigate();
-  const { data, isLoading } = useJobs();
+  const [params, setParams] = useState<JobListParams>({
+    page: 1,
+    pageSize: 20,
+  });
+  const { data, isLoading } = useJobs(params);
+
+  // 处理表格变化（分页、排序、筛选）
+  const handleTableChange = (
+    pagination: TablePaginationConfig,
+    filters: Record<string, FilterValue | null>,
+    sorter: SorterResult<Job> | SorterResult<Job>[]
+  ) => {
+    const newParams: JobListParams = {
+      page: pagination.current || 1,
+      pageSize: pagination.pageSize || 20,
+    };
+
+    // 处理排序
+    if (!Array.isArray(sorter) && sorter.field && sorter.order) {
+      newParams.sortBy = sorter.field as string;
+      newParams.sortOrder = sorter.order === 'ascend' ? 'asc' : 'desc';
+    }
+
+    // 处理筛选
+    if (filters.status) {
+      newParams.status = filters.status as string[];
+    }
+    if (filters.jobType) {
+      newParams.type = filters.jobType as string[];
+    }
+    if (filters.framework) {
+      newParams.framework = filters.framework as string[];
+    }
+
+    setParams(newParams);
+  };
 
   const columns = [
     {
       title: '作业名称',
       dataIndex: 'jobName',
       key: 'jobName',
-      sorter: (a: Job, b: Job) => {
-        const aName = a.jobName || a.jobId;
-        const bName = b.jobName || b.jobId;
-        return aName.localeCompare(bName);
-      },
+      sorter: true,
       render: (text: string, record: Job) => text || record.jobId,
     },
     {
@@ -32,14 +64,7 @@ const JobList: React.FC = () => {
         { text: '测试', value: 'testing' },
         { text: '未知', value: 'unknown' },
       ],
-      onFilter: (value: string | number | boolean, record: Job) => {
-        return record.jobType === value;
-      },
-      sorter: (a: Job, b: Job) => {
-        const aType = a.jobType || 'unknown';
-        const bType = b.jobType || 'unknown';
-        return aType.localeCompare(bType);
-      },
+      sorter: true,
       render: (type: Job['jobType']) => (
         type ? <Tag>{JOB_TYPE_MAP[type] || type}</Tag> : '-'
       ),
@@ -54,28 +79,14 @@ const JobList: React.FC = () => {
         { text: 'MindSpore', value: 'mindspore' },
         { text: '其他', value: 'other' },
       ],
-      onFilter: (value: string | number | boolean, record: Job) => {
-        if (value === 'other') {
-          return record.framework && !['pytorch', 'tensorflow', 'mindspore'].includes(record.framework.toLowerCase());
-        }
-        return record.framework?.toLowerCase() === value;
-      },
-      sorter: (a: Job, b: Job) => {
-        const aFramework = a.framework || '';
-        const bFramework = b.framework || '';
-        return aFramework.localeCompare(bFramework);
-      },
+      sorter: true,
       render: (text: string) => text ? <Tag color="blue">{text}</Tag> : '-',
     },
     {
       title: '节点',
       dataIndex: 'nodeId',
       key: 'nodeId',
-      sorter: (a: Job, b: Job) => {
-        const aNode = a.nodeId || '';
-        const bNode = b.nodeId || '';
-        return aNode.localeCompare(bNode);
-      },
+      sorter: true,
       render: (text: string) => text || '-',
     },
     {
@@ -89,21 +100,7 @@ const JobList: React.FC = () => {
         { text: '已停止', value: 'stopped' },
         { text: '丢失', value: 'lost' },
       ],
-      onFilter: (value: string | number | boolean, record: Job) => {
-        return record.status === value;
-      },
-      sorter: (a: Job, b: Job) => {
-        const statusOrder: Record<string, number> = {
-          running: 1,
-          failed: 2,
-          stopped: 3,
-          completed: 4,
-          lost: 5,
-        };
-        const aOrder = a.status ? statusOrder[a.status] || 999 : 999;
-        const bOrder = b.status ? statusOrder[b.status] || 999 : 999;
-        return aOrder - bOrder;
-      },
+      sorter: true,
       render: (status: Job['status']) => (
         <StatusBadge status={status} type="job" />
       ),
@@ -112,11 +109,7 @@ const JobList: React.FC = () => {
       title: '开始时间',
       dataIndex: 'startTime',
       key: 'startTime',
-      sorter: (a: Job, b: Job) => {
-        const aTime = a.startTime || 0;
-        const bTime = b.startTime || 0;
-        return aTime - bTime;
-      },
+      sorter: true,
       render: (time: number) => formatTimestamp(time),
     },
     {
@@ -141,6 +134,7 @@ const JobList: React.FC = () => {
       dataSource={data?.items || []}
       loading={isLoading}
       rowKey="jobId"
+      onChange={handleTableChange}
       pagination={{
         total: data?.pagination?.total || 0,
         pageSize: data?.pagination?.pageSize || 20,
