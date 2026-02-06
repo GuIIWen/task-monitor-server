@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Table, Space, Button, Tag } from 'antd';
 import type { TablePaginationConfig, SorterResult, FilterValue } from 'antd/es/table/interface';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { StatusBadge } from '@/components/Common';
-import { useJobs } from '@/hooks';
+import { useGroupedJobs } from '@/hooks/useJobs';
 import { formatTimestamp, JOB_TYPE_MAP } from '@/utils';
-import type { Job, JobListParams } from '@/types/job';
+import type { Job, JobListParams, JobGroup } from '@/types/job';
 
 const JobList: React.FC = () => {
   const navigate = useNavigate();
@@ -32,13 +32,13 @@ const JobList: React.FC = () => {
     };
   });
 
-  const { data, isLoading } = useJobs(params);
+  const { data, isLoading } = useGroupedJobs(params);
 
   // 处理表格变化（分页、排序、筛选）
   const handleTableChange = (
     pagination: TablePaginationConfig,
     filters: Record<string, FilterValue | null>,
-    sorter: SorterResult<Job> | SorterResult<Job>[]
+    sorter: SorterResult<JobGroup> | SorterResult<JobGroup>[]
   ) => {
     const newParams: JobListParams = {
       page: pagination.current || 1,
@@ -46,8 +46,8 @@ const JobList: React.FC = () => {
     };
 
     // 处理排序
-    if (!Array.isArray(sorter) && sorter.field && sorter.order) {
-      newParams.sortBy = sorter.field as string;
+    if (!Array.isArray(sorter) && sorter.columnKey && sorter.order) {
+      newParams.sortBy = sorter.columnKey as string;
       newParams.sortOrder = sorter.order === 'ascend' ? 'asc' : 'desc';
     }
 
@@ -92,15 +92,15 @@ const JobList: React.FC = () => {
   const columns = [
     {
       title: '作业名称',
-      dataIndex: 'jobName',
+      dataIndex: ['mainJob', 'jobName'],
       key: 'jobName',
       sorter: true,
       sortOrder: params.sortBy === 'jobName' ? (params.sortOrder === 'asc' ? 'ascend' : 'descend') : null,
-      render: (text: string, record: Job) => text || record.jobId,
+      render: (text: string, record: JobGroup) => text || record.mainJob.jobId,
     },
     {
       title: '类型',
-      dataIndex: 'jobType',
+      dataIndex: ['mainJob', 'jobType'],
       key: 'jobType',
       filters: [
         { text: '训练', value: 'training' },
@@ -117,7 +117,7 @@ const JobList: React.FC = () => {
     },
     {
       title: '框架',
-      dataIndex: 'framework',
+      dataIndex: ['mainJob', 'framework'],
       key: 'framework',
       filters: [
         { text: 'PyTorch', value: 'pytorch' },
@@ -132,7 +132,7 @@ const JobList: React.FC = () => {
     },
     {
       title: '节点',
-      dataIndex: 'nodeId',
+      dataIndex: ['mainJob', 'nodeId'],
       key: 'nodeId',
       sorter: true,
       sortOrder: params.sortBy === 'nodeId' ? (params.sortOrder === 'asc' ? 'ascend' : 'descend') : null,
@@ -140,7 +140,7 @@ const JobList: React.FC = () => {
     },
     {
       title: '状态',
-      dataIndex: 'status',
+      dataIndex: ['mainJob', 'status'],
       key: 'status',
       filters: [
         { text: '运行中', value: 'running' },
@@ -158,20 +158,29 @@ const JobList: React.FC = () => {
     },
     {
       title: '开始时间',
-      dataIndex: 'startTime',
+      dataIndex: ['mainJob', 'startTime'],
       key: 'startTime',
       sorter: true,
       sortOrder: params.sortBy === 'startTime' ? (params.sortOrder === 'asc' ? 'ascend' : 'descend') : null,
       render: (time: number) => formatTimestamp(time),
     },
     {
+      title: '卡数',
+      dataIndex: 'cardCount',
+      key: 'cardCount',
+      width: 80,
+      render: (count: number) => (
+        <Tag color={count > 1 ? 'orange' : 'default'}>{count}</Tag>
+      ),
+    },
+    {
       title: '操作',
       key: 'action',
-      render: (_: any, record: Job) => (
+      render: (_: any, record: JobGroup) => (
         <Space>
           <Button
             type="link"
-            onClick={() => navigate(`/jobs/${record.jobId}`)}
+            onClick={() => navigate(`/jobs/${record.mainJob.jobId}`)}
           >
             查看详情
           </Button>
@@ -180,19 +189,67 @@ const JobList: React.FC = () => {
     },
   ];
 
+  // 子任务表格列
+  const childColumns = [
+    {
+      title: 'PID',
+      dataIndex: 'pid',
+      key: 'pid',
+    },
+    {
+      title: '进程名',
+      dataIndex: 'processName',
+      key: 'processName',
+      render: (text: string) => text || '-',
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      render: (status: Job['status']) => <StatusBadge status={status} type="job" />,
+    },
+    {
+      title: '开始时间',
+      dataIndex: 'startTime',
+      key: 'startTime',
+      render: (time: number) => formatTimestamp(time),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      render: (_: any, record: Job) => (
+        <Button type="link" onClick={() => navigate(`/jobs/${record.jobId}`)}>
+          查看详情
+        </Button>
+      ),
+    },
+  ];
+
   return (
-    <Table
+    <Table<JobGroup>
       columns={columns}
       dataSource={data?.items || []}
       loading={isLoading}
-      rowKey="jobId"
+      rowKey={(record) => record.mainJob.jobId}
       onChange={handleTableChange}
+      expandable={{
+        expandedRowRender: (record) => (
+          <Table<Job>
+            columns={childColumns}
+            dataSource={record.childJobs}
+            rowKey="jobId"
+            pagination={false}
+            size="small"
+          />
+        ),
+        rowExpandable: (record) => record.cardCount > 1,
+      }}
       pagination={{
         total: data?.pagination?.total || 0,
         pageSize: data?.pagination?.pageSize || 20,
         current: data?.pagination?.page || 1,
         showSizeChanger: true,
-        showTotal: (total) => `共 ${total} 条`,
+        showTotal: (total) => `共 ${total} 组`,
       }}
     />
   );

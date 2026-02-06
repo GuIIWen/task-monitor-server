@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"fmt"
+
 	"github.com/task-monitor/api-server/internal/model"
 	"gorm.io/gorm"
 )
@@ -116,4 +118,94 @@ func (r *JobRepository) Count(nodeID string, statuses []string, jobTypes []strin
 
 	err := query.Count(&total).Error
 	return total, err
+}
+
+// applyFilters 应用通用筛选条件
+func (r *JobRepository) applyFilters(query *gorm.DB, nodeID string, statuses []string, jobTypes []string, frameworks []string) *gorm.DB {
+	if nodeID != "" {
+		query = query.Where("node_id = ?", nodeID)
+	}
+	if len(statuses) > 0 {
+		query = query.Where("status IN ?", statuses)
+	}
+	if len(jobTypes) > 0 {
+		query = query.Where("job_type IN ?", jobTypes)
+	}
+	if len(frameworks) > 0 {
+		query = query.Where("framework IN ?", frameworks)
+	}
+	return query
+}
+
+// groupKey 分组键
+type groupKey struct {
+	NodeID string `gorm:"column:node_id"`
+	PGID   int64  `gorm:"column:pgid"`
+}
+
+// CountGroups 统计按 node_id+pgid 分组后的组数
+func (r *JobRepository) CountGroups(nodeID string, statuses []string, jobTypes []string, frameworks []string) (int64, error) {
+	var total int64
+	subQuery := r.db.Model(&model.Job{}).Select("node_id, pgid")
+	subQuery = r.applyFilters(subQuery, nodeID, statuses, jobTypes, frameworks)
+	subQuery = subQuery.Group("node_id, pgid")
+
+	err := r.db.Table("(?) AS job_groups", subQuery).Count(&total).Error
+	return total, err
+}
+
+// FindGrouped 按 node_id+pgid 分组查询作业
+// 两阶段查询：先查分组列表（带分页），再查各组下的所有作业
+func (r *JobRepository) FindGrouped(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, limit, offset int) ([]model.Job, error) {
+	// 阶段1：查出分页后的分组 (node_id, pgid) 列表
+	orderClause := "MIN(start_time) DESC"
+	if col, ok := allowedSortColumns[sortBy]; ok {
+		dir := "ASC"
+		if sortOrder == "desc" {
+			dir = "DESC"
+		}
+		// 分组排序使用聚合函数
+		orderClause = fmt.Sprintf("MIN(%s) %s", col, dir)
+	}
+
+	groupQuery := r.db.Model(&model.Job{}).Select("node_id, pgid")
+	groupQuery = r.applyFilters(groupQuery, nodeID, statuses, jobTypes, frameworks)
+	groupQuery = groupQuery.Group("node_id, pgid").Order(orderClause)
+
+	if limit > 0 {
+		groupQuery = groupQuery.Limit(limit)
+	}
+	if offset > 0 {
+		groupQuery = groupQuery.Offset(offset)
+	}
+
+	var groups []groupKey
+	if err := groupQuery.Find(&groups).Error; err != nil {
+		return nil, err
+	}
+
+	if len(groups) == 0 {
+		return []model.Job{}, nil
+	}
+
+	// 阶段2：构建 OR 条件查出这些分组下的所有作业
+	query := r.db.Session(&gorm.Session{})
+	orConditions := r.db.Session(&gorm.Session{})
+	for i, g := range groups {
+		if i == 0 {
+			orConditions = orConditions.Where("(node_id = ? AND pgid = ?)", g.NodeID, g.PGID)
+		} else {
+			orConditions = orConditions.Or("(node_id = ? AND pgid = ?)", g.NodeID, g.PGID)
+		}
+	}
+	query = query.Where(orConditions)
+	query = r.applyFilters(query, nodeID, statuses, jobTypes, frameworks)
+	query = query.Order("node_id, pgid, pid ASC")
+
+	var jobs []model.Job
+	if err := query.Find(&jobs).Error; err != nil {
+		return nil, err
+	}
+
+	return jobs, nil
 }

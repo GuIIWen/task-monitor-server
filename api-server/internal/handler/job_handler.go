@@ -111,6 +111,49 @@ func (h *JobHandler) GetJobCode(c *gin.Context) {
 	utils.SuccessResponse(c, code)
 }
 
+// GetGroupedJobs 获取分组作业列表（按 node_id+pgid 分组）
+func (h *JobHandler) GetGroupedJobs(c *gin.Context) {
+	nodeID := c.Query("nodeId")
+	statuses := c.QueryArray("status")
+	jobTypes := c.QueryArray("type")
+	frameworks := c.QueryArray("framework")
+	sortBy := c.Query("sortBy")
+	sortOrder := c.Query("sortOrder")
+
+	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if err != nil || page < 1 {
+		page = 1
+	}
+	pageSize, err := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
+	if err != nil || pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	groups, total, err := h.jobService.GetGroupedJobs(nodeID, statuses, jobTypes, frameworks, sortBy, sortOrder, page, pageSize)
+	if err != nil {
+		utils.ErrorResponse(c, 500, "Database error: "+err.Error())
+		return
+	}
+
+	totalPages := int64(0)
+	if pageSize > 0 {
+		totalPages = (total + int64(pageSize) - 1) / int64(pageSize)
+	}
+
+	utils.SuccessResponse(c, utils.PaginationResponse{
+		Items: groups,
+		Pagination: utils.Pagination{
+			Page:       page,
+			PageSize:   pageSize,
+			Total:      total,
+			TotalPages: totalPages,
+		},
+	})
+}
+
 // GetJobStats 获取作业统计信息
 func (h *JobHandler) GetJobStats(c *gin.Context) {
 	stats, err := h.jobService.GetJobStats()

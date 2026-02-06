@@ -10,6 +10,13 @@ type NodeServiceInterface interface {
 	GetNodeStats() (map[string]int64, error)
 }
 
+// JobGroup 作业分组（按 node_id + pgid 分组）
+type JobGroup struct {
+	MainJob   model.Job   `json:"mainJob"`
+	ChildJobs []model.Job `json:"childJobs"`
+	CardCount int         `json:"cardCount"`
+}
+
 // JobServiceInterface defines the interface for job service operations
 type JobServiceInterface interface {
 	GetJobByID(jobID string) (*model.Job, error)
@@ -17,6 +24,7 @@ type JobServiceInterface interface {
 	GetJobsByStatus(status string) ([]model.Job, error)
 	GetAllJobs() ([]model.Job, error)
 	GetJobs(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, page, pageSize int) ([]model.Job, int64, error)
+	GetGroupedJobs(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, page, pageSize int) ([]JobGroup, int64, error)
 	GetJobParameters(jobID string) ([]model.Parameter, error)
 	GetJobCode(jobID string) ([]model.Code, error)
 	GetJobStats() (map[string]int64, error)

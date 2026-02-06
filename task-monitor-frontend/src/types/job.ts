@@ -58,3 +58,19 @@ export interface JobStats {
   stopped: number;
   lost: number;
 }
+
+export interface JobGroup {
+  mainJob: Job;
+  childJobs: Job[];
+  cardCount: number;
+}
+
+export interface GroupedJobListResponse {
+  items: JobGroup[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
+}

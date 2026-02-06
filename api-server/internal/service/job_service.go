@@ -1,6 +1,8 @@
 package service
 
 import (
+	"fmt"
+
 	"github.com/task-monitor/api-server/internal/model"
 	"github.com/task-monitor/api-server/internal/repository"
 )
@@ -115,4 +117,62 @@ func (s *JobService) GetJobStats() (map[string]int64, error) {
 	}
 
 	return stats, nil
+}
+
+// GetGroupedJobs 按 node_id+pgid 分组查询作业
+func (s *JobService) GetGroupedJobs(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, page, pageSize int) ([]JobGroup, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+
+	total, err := s.jobRepo.CountGroups(nodeID, statuses, jobTypes, frameworks)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count groups: %w", err)
+	}
+
+	offset := (page - 1) * pageSize
+	jobs, err := s.jobRepo.FindGrouped(nodeID, statuses, jobTypes, frameworks, sortBy, sortOrder, pageSize, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("find grouped: %w", err)
+	}
+
+	// 按 node_id+pgid 组装分组
+	groupMap := make(map[string]*JobGroup)
+	var groupOrder []string
+
+	for i := range jobs {
+		job := jobs[i]
+		var nid string
+		var pgid int64
+		if job.NodeID != nil {
+			nid = *job.NodeID
+		}
+		if job.PGID != nil {
+			pgid = *job.PGID
+		}
+		key := fmt.Sprintf("%s_%d", nid, pgid)
+
+		if g, ok := groupMap[key]; ok {
+			g.ChildJobs = append(g.ChildJobs, job)
+			g.CardCount++
+		} else {
+			groupMap[key] = &JobGroup{
+				MainJob:   job,
+				ChildJobs: []model.Job{},
+				CardCount: 1,
+			}
+			groupOrder = append(groupOrder, key)
+		}
+	}
+
+	// 按查询顺序组装结果
+	groups := make([]JobGroup, 0, len(groupOrder))
+	for _, key := range groupOrder {
+		groups = append(groups, *groupMap[key])
+	}
+
+	return groups, total, nil
 }

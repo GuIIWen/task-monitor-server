@@ -47,3 +47,14 @@ export const useJobCode = (jobId: string) => {
     enabled: !!jobId,
   });
 };
+
+/**
+ * 获取分组作业列表
+ */
+export const useGroupedJobs = (params?: JobListParams) => {
+  return useQuery({
+    queryKey: ['groupedJobs', params],
+    queryFn: () => jobApi.getGroupedJobs(params),
+    refetchInterval: REFRESH_INTERVAL,
+  });
+};

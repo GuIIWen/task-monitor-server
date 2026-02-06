@@ -135,6 +135,9 @@ API Server提供以下RESTful接口：
 ### 作业相关
 - `GET /api/v1/jobs` - 获取作业列表
   - 查询参数: `nodeId` 或 `status` (必须提供其中之一)
+- `GET /api/v1/jobs/grouped` - 获取分组作业列表（按 node_id+pgid 分组）
+  - 查询参数: `nodeId`, `status`, `type`, `framework`, `sortBy`, `sortOrder`, `page`, `pageSize`
+  - 多卡任务自动合并为一组，返回主任务和子任务列表
 - `GET /api/v1/jobs/:jobId` - 获取作业详情
 - `GET /api/v1/jobs/:jobId/parameters` - 获取作业参数
 - `GET /api/v1/jobs/:jobId/code` - 获取作业代码

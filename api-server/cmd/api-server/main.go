@@ -81,6 +81,7 @@ func main() {
 		jobs := api.Group("/jobs")
 		{
 			jobs.GET("", jobHandler.GetJobs)
+			jobs.GET("/grouped", jobHandler.GetGroupedJobs)
 			jobs.GET("/stats", jobHandler.GetJobStats)
 			jobs.GET("/:jobId", jobHandler.GetJobByID)
 			jobs.GET("/:jobId/parameters", jobHandler.GetJobParameters)
