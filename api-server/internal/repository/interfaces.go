@@ -19,8 +19,8 @@ type JobRepositoryInterface interface {
 	FindAll() ([]model.Job, error)
 	Find(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, limit, offset int) ([]model.Job, error)
 	Count(nodeID string, statuses []string, jobTypes []string, frameworks []string) (int64, error)
-	FindGrouped(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, limit, offset int) ([]model.Job, error)
-	CountGroups(nodeID string, statuses []string, jobTypes []string, frameworks []string) (int64, error)
+	FindGrouped(nodeID string, statuses []string, jobTypes []string, frameworks []string, cardCounts []int, sortBy, sortOrder string, limit, offset int) ([]model.Job, error)
+	CountGroups(nodeID string, statuses []string, jobTypes []string, frameworks []string, cardCounts []int) (int64, error)
 }
 
 // ParameterRepositoryInterface defines the interface for parameter repository operations

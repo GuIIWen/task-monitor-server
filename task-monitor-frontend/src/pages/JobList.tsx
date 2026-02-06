@@ -22,6 +22,7 @@ const JobList: React.FC = () => {
     const type = searchParams.getAll('type');
     const framework = searchParams.getAll('framework');
     const nodeId = searchParams.get('nodeId') || undefined;
+    const cardCount = searchParams.getAll('cardCount').map(Number).filter(n => !isNaN(n));
 
     return {
       page,
@@ -32,14 +33,12 @@ const JobList: React.FC = () => {
       type: type.length > 0 ? type : undefined,
       framework: framework.length > 0 ? framework : undefined,
       nodeId,
+      cardCount: cardCount.length > 0 ? cardCount : undefined,
     };
   });
 
   const { data, isLoading } = useGroupedJobs(params);
   const { data: nodesData } = useNodes();
-
-  // 卡数客户端筛选状态
-  const [cardCountFilter, setCardCountFilter] = useState<number[]>([]);
 
   // 动态生成节点筛选选项
   const nodeFilters = (nodesData || []).map((n: any) => ({
@@ -47,10 +46,8 @@ const JobList: React.FC = () => {
     value: n.nodeId,
   }));
 
-  // 动态生成卡数筛选选项
-  const cardCountFilters = Array.from(
-    new Set((data?.items || []).map((g: JobGroup) => g.cardCount))
-  ).sort((a, b) => a - b).map(c => ({ text: String(c), value: c }));
+  // 卡数筛选选项（固定常见值）
+  const cardCountFilters = [1, 2, 4, 5, 8, 16, 32, 44].map(c => ({ text: String(c), value: c }));
   const handleTableChange = (
     pagination: TablePaginationConfig,
     filters: Record<string, FilterValue | null>,
@@ -81,8 +78,10 @@ const JobList: React.FC = () => {
       newParams.nodeId = filters.nodeId[0] as string;
     }
 
-    // 卡数客户端筛选
-    setCardCountFilter(filters.cardCount ? (filters.cardCount as number[]) : []);
+    // 卡数筛选（走后端）
+    if (filters.cardCount && filters.cardCount.length > 0) {
+      newParams.cardCount = filters.cardCount as number[];
+    }
 
     // 更新状态
     setParams(newParams);
@@ -109,6 +108,9 @@ const JobList: React.FC = () => {
     }
     if (newParams.nodeId) {
       newSearchParams.set('nodeId', newParams.nodeId);
+    }
+    if (newParams.cardCount) {
+      newParams.cardCount.forEach(c => newSearchParams.append('cardCount', String(c)));
     }
 
     setSearchParams(newSearchParams);
@@ -201,8 +203,9 @@ const JobList: React.FC = () => {
       key: 'cardCount',
       width: 80,
       filters: cardCountFilters,
-      filteredValue: cardCountFilter.length > 0 ? cardCountFilter : null,
-      sorter: (a: JobGroup, b: JobGroup) => a.cardCount - b.cardCount,
+      filteredValue: params.cardCount || null,
+      sorter: true,
+      sortOrder: params.sortBy === 'cardCount' ? (params.sortOrder === 'asc' ? 'ascend' : 'descend') : null,
       render: (count: number) => (
         <Tag color={count > 1 ? 'orange' : 'default'}>{count}</Tag>
       ),
@@ -259,14 +262,10 @@ const JobList: React.FC = () => {
     },
   ];
 
-  const filteredItems = (data?.items || []).filter((g: JobGroup) =>
-    cardCountFilter.length === 0 || cardCountFilter.includes(g.cardCount)
-  );
-
   return (
     <Table<JobGroup>
       columns={columns}
-      dataSource={filteredItems}
+      dataSource={data?.items || []}
       loading={isLoading}
       rowKey={(record) => record.mainJob.jobId}
       onChange={handleTableChange}

@@ -144,11 +144,14 @@ type groupKey struct {
 }
 
 // CountGroups 统计按 node_id+pgid 分组后的组数
-func (r *JobRepository) CountGroups(nodeID string, statuses []string, jobTypes []string, frameworks []string) (int64, error) {
+func (r *JobRepository) CountGroups(nodeID string, statuses []string, jobTypes []string, frameworks []string, cardCounts []int) (int64, error) {
 	var total int64
-	subQuery := r.db.Model(&model.Job{}).Select("node_id, pgid")
+	subQuery := r.db.Model(&model.Job{}).Select("node_id, pgid, COUNT(*) AS card_count")
 	subQuery = r.applyFilters(subQuery, nodeID, statuses, jobTypes, frameworks)
 	subQuery = subQuery.Group("node_id, pgid")
+	if len(cardCounts) > 0 {
+		subQuery = subQuery.Having("COUNT(*) IN ?", cardCounts)
+	}
 
 	err := r.db.Table("(?) AS job_groups", subQuery).Count(&total).Error
 	return total, err
@@ -156,21 +159,30 @@ func (r *JobRepository) CountGroups(nodeID string, statuses []string, jobTypes [
 
 // FindGrouped 按 node_id+pgid 分组查询作业
 // 两阶段查询：先查分组列表（带分页），再查各组下的所有作业
-func (r *JobRepository) FindGrouped(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, limit, offset int) ([]model.Job, error) {
+func (r *JobRepository) FindGrouped(nodeID string, statuses []string, jobTypes []string, frameworks []string, cardCounts []int, sortBy, sortOrder string, limit, offset int) ([]model.Job, error) {
 	// 阶段1：查出分页后的分组 (node_id, pgid) 列表
 	orderClause := "MIN(start_time) DESC"
-	if col, ok := allowedSortColumns[sortBy]; ok {
+	if sortBy == "cardCount" {
 		dir := "ASC"
 		if sortOrder == "desc" {
 			dir = "DESC"
 		}
-		// 分组排序使用聚合函数
+		orderClause = fmt.Sprintf("COUNT(*) %s", dir)
+	} else if col, ok := allowedSortColumns[sortBy]; ok {
+		dir := "ASC"
+		if sortOrder == "desc" {
+			dir = "DESC"
+		}
 		orderClause = fmt.Sprintf("MIN(%s) %s", col, dir)
 	}
 
 	groupQuery := r.db.Model(&model.Job{}).Select("node_id, pgid")
 	groupQuery = r.applyFilters(groupQuery, nodeID, statuses, jobTypes, frameworks)
-	groupQuery = groupQuery.Group("node_id, pgid").Order(orderClause)
+	groupQuery = groupQuery.Group("node_id, pgid")
+	if len(cardCounts) > 0 {
+		groupQuery = groupQuery.Having("COUNT(*) IN ?", cardCounts)
+	}
+	groupQuery = groupQuery.Order(orderClause)
 
 	if limit > 0 {
 		groupQuery = groupQuery.Limit(limit)

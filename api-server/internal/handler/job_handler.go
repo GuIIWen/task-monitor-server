@@ -117,6 +117,13 @@ func (h *JobHandler) GetGroupedJobs(c *gin.Context) {
 	statuses := c.QueryArray("status")
 	jobTypes := c.QueryArray("type")
 	frameworks := c.QueryArray("framework")
+	cardCountStrs := c.QueryArray("cardCount")
+	var cardCounts []int
+	for _, s := range cardCountStrs {
+		if v, err := strconv.Atoi(s); err == nil {
+			cardCounts = append(cardCounts, v)
+		}
+	}
 	sortBy := c.Query("sortBy")
 	sortOrder := c.Query("sortOrder")
 
@@ -132,7 +139,7 @@ func (h *JobHandler) GetGroupedJobs(c *gin.Context) {
 		pageSize = 100
 	}
 
-	groups, total, err := h.jobService.GetGroupedJobs(nodeID, statuses, jobTypes, frameworks, sortBy, sortOrder, page, pageSize)
+	groups, total, err := h.jobService.GetGroupedJobs(nodeID, statuses, jobTypes, frameworks, cardCounts, sortBy, sortOrder, page, pageSize)
 	if err != nil {
 		utils.ErrorResponse(c, 500, "Database error: "+err.Error())
 		return

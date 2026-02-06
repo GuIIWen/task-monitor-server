@@ -35,6 +35,7 @@ export interface JobListParams {
   type?: string[];
   framework?: string[];
   nodeId?: string;
+  cardCount?: number[];
   startTime?: Date;
   endTime?: Date;
   page?: number;

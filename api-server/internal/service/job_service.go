@@ -120,7 +120,7 @@ func (s *JobService) GetJobStats() (map[string]int64, error) {
 }
 
 // GetGroupedJobs 按 node_id+pgid 分组查询作业
-func (s *JobService) GetGroupedJobs(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, page, pageSize int) ([]JobGroup, int64, error) {
+func (s *JobService) GetGroupedJobs(nodeID string, statuses []string, jobTypes []string, frameworks []string, cardCounts []int, sortBy, sortOrder string, page, pageSize int) ([]JobGroup, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -128,13 +128,13 @@ func (s *JobService) GetGroupedJobs(nodeID string, statuses []string, jobTypes [
 		pageSize = 20
 	}
 
-	total, err := s.jobRepo.CountGroups(nodeID, statuses, jobTypes, frameworks)
+	total, err := s.jobRepo.CountGroups(nodeID, statuses, jobTypes, frameworks, cardCounts)
 	if err != nil {
 		return nil, 0, fmt.Errorf("count groups: %w", err)
 	}
 
 	offset := (page - 1) * pageSize
-	jobs, err := s.jobRepo.FindGrouped(nodeID, statuses, jobTypes, frameworks, sortBy, sortOrder, pageSize, offset)
+	jobs, err := s.jobRepo.FindGrouped(nodeID, statuses, jobTypes, frameworks, cardCounts, sortBy, sortOrder, pageSize, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("find grouped: %w", err)
 	}

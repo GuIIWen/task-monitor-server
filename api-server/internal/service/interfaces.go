@@ -24,7 +24,7 @@ type JobServiceInterface interface {
 	GetJobsByStatus(status string) ([]model.Job, error)
 	GetAllJobs() ([]model.Job, error)
 	GetJobs(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, page, pageSize int) ([]model.Job, int64, error)
-	GetGroupedJobs(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, page, pageSize int) ([]JobGroup, int64, error)
+	GetGroupedJobs(nodeID string, statuses []string, jobTypes []string, frameworks []string, cardCounts []int, sortBy, sortOrder string, page, pageSize int) ([]JobGroup, int64, error)
 	GetJobParameters(jobID string) ([]model.Parameter, error)
 	GetJobCode(jobID string) ([]model.Code, error)
 	GetJobStats() (map[string]int64, error)
