@@ -25,8 +25,8 @@ apiClient.interceptors.request.use(
 // 响应拦截器
 apiClient.interceptors.response.use(
   (response) => {
-    // 直接返回data字段
-    return response.data;
+    // API返回格式为 {code, message, data}，解包到data字段
+    return response.data.data;
   },
   (error) => {
     // 统一错误处理
