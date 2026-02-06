@@ -16,5 +16,5 @@ type Code struct {
 }
 
 func (Code) TableName() string {
-	return "code"
+	return "codes"
 }

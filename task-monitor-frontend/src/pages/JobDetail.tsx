@@ -1,15 +1,17 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Descriptions, Button, Space, Tag } from 'antd';
-import { ArrowLeftOutlined } from '@ant-design/icons';
+import { Card, Descriptions, Button, Space, Tag, Modal } from 'antd';
+import { ArrowLeftOutlined, CodeOutlined } from '@ant-design/icons';
 import { StatusBadge, LoadingSpinner } from '@/components/Common';
-import { useJob } from '@/hooks';
+import { useJob, useJobCode } from '@/hooks';
 import { formatTimestamp, JOB_TYPE_MAP } from '@/utils';
 
 const JobDetail: React.FC = () => {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
   const { data: job, isLoading } = useJob(jobId!);
+  const { data: codeList } = useJobCode(jobId!);
+  const [codeModalOpen, setCodeModalOpen] = useState(false);
 
   if (isLoading) {
     return <LoadingSpinner />;
@@ -50,6 +52,20 @@ const JobDetail: React.FC = () => {
           <Descriptions.Item label="命令行" span={2}>
             <code style={{ wordBreak: 'break-all' }}>{job.commandLine || '-'}</code>
           </Descriptions.Item>
+          <Descriptions.Item label="启动脚本" span={2}>
+            {codeList && codeList.length > 0 ? (
+              <Space>
+                <code>{codeList[0].scriptPath || '-'}</code>
+                <Button
+                  type="link"
+                  icon={<CodeOutlined />}
+                  onClick={() => setCodeModalOpen(true)}
+                >
+                  查看代码
+                </Button>
+              </Space>
+            ) : '-'}
+          </Descriptions.Item>
           <Descriptions.Item label="开始时间">
             {formatTimestamp(job.startTime)}
           </Descriptions.Item>
@@ -58,6 +74,44 @@ const JobDetail: React.FC = () => {
           </Descriptions.Item>
         </Descriptions>
       </Card>
+
+      {codeList && codeList.length > 0 && (
+        <Modal
+          title={`启动脚本 - ${codeList[0].scriptPath || ''}`}
+          open={codeModalOpen}
+          onCancel={() => setCodeModalOpen(false)}
+          footer={null}
+          width={900}
+        >
+          <pre style={{
+            background: '#f5f5f5',
+            padding: 16,
+            borderRadius: 4,
+            maxHeight: 600,
+            overflow: 'auto',
+            fontSize: 13,
+            lineHeight: 1.6,
+          }}>
+            {codeList[0].scriptContent || '暂无内容'}
+          </pre>
+          {codeList[0].shScriptContent && (
+            <>
+              <h4 style={{ marginTop: 16 }}>Shell 启动脚本 - {codeList[0].shScriptPath}</h4>
+              <pre style={{
+                background: '#f5f5f5',
+                padding: 16,
+                borderRadius: 4,
+                maxHeight: 300,
+                overflow: 'auto',
+                fontSize: 13,
+                lineHeight: 1.6,
+              }}>
+                {codeList[0].shScriptContent}
+              </pre>
+            </>
+          )}
+        </Modal>
+      )}
     </Space>
   );
 };

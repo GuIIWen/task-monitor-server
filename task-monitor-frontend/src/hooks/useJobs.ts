@@ -36,3 +36,14 @@ export const useJobStats = () => {
     refetchInterval: REFRESH_INTERVAL,
   });
 };
+
+/**
+ * 获取作业代码
+ */
+export const useJobCode = (jobId: string) => {
+  return useQuery({
+    queryKey: ['jobCode', jobId],
+    queryFn: () => jobApi.getJobCode(jobId),
+    enabled: !!jobId,
+  });
+};

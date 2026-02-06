@@ -25,4 +25,11 @@ export const jobApi = {
   getJobStats: async (): Promise<JobStats> => {
     return apiClient.get('/jobs/stats');
   },
+
+  /**
+   * 获取作业代码
+   */
+  getJobCode: async (jobId: string): Promise<any[]> => {
+    return apiClient.get(`/jobs/${jobId}/code`);
+  },
 };
