@@ -41,6 +41,28 @@ const JobList: React.FC = () => {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
+      filters: [
+        { text: '运行中', value: 'running' },
+        { text: '已完成', value: 'completed' },
+        { text: '失败', value: 'failed' },
+        { text: '已停止', value: 'stopped' },
+        { text: '丢失', value: 'lost' },
+      ],
+      onFilter: (value: string | number | boolean, record: Job) => {
+        return record.status === value;
+      },
+      sorter: (a: Job, b: Job) => {
+        const statusOrder: Record<string, number> = {
+          running: 1,
+          failed: 2,
+          stopped: 3,
+          completed: 4,
+          lost: 5,
+        };
+        const aOrder = a.status ? statusOrder[a.status] || 999 : 999;
+        const bOrder = b.status ? statusOrder[b.status] || 999 : 999;
+        return aOrder - bOrder;
+      },
       render: (status: Job['status']) => (
         <StatusBadge status={status} type="job" />
       ),
