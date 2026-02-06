@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Table, Space, Button, Tag } from 'antd';
 import type { TablePaginationConfig, SorterResult, FilterValue } from 'antd/es/table/interface';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { StatusBadge } from '@/components/Common';
 import { useJobs } from '@/hooks';
 import { formatTimestamp, JOB_TYPE_MAP } from '@/utils';
@@ -9,10 +9,29 @@ import type { Job, JobListParams } from '@/types/job';
 
 const JobList: React.FC = () => {
   const navigate = useNavigate();
-  const [params, setParams] = useState<JobListParams>({
-    page: 1,
-    pageSize: 20,
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // 从 URL 查询参数初始化状态
+  const [params, setParams] = useState<JobListParams>(() => {
+    const page = parseInt(searchParams.get('page') || '1', 10);
+    const pageSize = parseInt(searchParams.get('pageSize') || '20', 10);
+    const sortBy = searchParams.get('sortBy') || undefined;
+    const sortOrder = (searchParams.get('sortOrder') as 'asc' | 'desc') || undefined;
+    const status = searchParams.getAll('status');
+    const type = searchParams.getAll('type');
+    const framework = searchParams.getAll('framework');
+
+    return {
+      page,
+      pageSize,
+      sortBy,
+      sortOrder,
+      status: status.length > 0 ? status : undefined,
+      type: type.length > 0 ? type : undefined,
+      framework: framework.length > 0 ? framework : undefined,
+    };
   });
+
   const { data, isLoading } = useJobs(params);
 
   // 处理表格变化（分页、排序、筛选）
@@ -43,7 +62,31 @@ const JobList: React.FC = () => {
       newParams.framework = filters.framework as string[];
     }
 
+    // 更新状态
     setParams(newParams);
+
+    // 更新 URL 查询参数
+    const newSearchParams = new URLSearchParams();
+    newSearchParams.set('page', String(newParams.page));
+    newSearchParams.set('pageSize', String(newParams.pageSize));
+
+    if (newParams.sortBy) {
+      newSearchParams.set('sortBy', newParams.sortBy);
+    }
+    if (newParams.sortOrder) {
+      newSearchParams.set('sortOrder', newParams.sortOrder);
+    }
+    if (newParams.status) {
+      newParams.status.forEach(s => newSearchParams.append('status', s));
+    }
+    if (newParams.type) {
+      newParams.type.forEach(t => newSearchParams.append('type', t));
+    }
+    if (newParams.framework) {
+      newParams.framework.forEach(f => newSearchParams.append('framework', f));
+    }
+
+    setSearchParams(newSearchParams);
   };
 
   const columns = [
