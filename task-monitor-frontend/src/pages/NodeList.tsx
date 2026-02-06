@@ -1,14 +1,30 @@
 import React from 'react';
 import { Table, Space, Button } from 'antd';
-import { useNavigate } from 'react-router-dom';
+import type { FilterValue } from 'antd/es/table/interface';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { StatusBadge } from '@/components/Common';
 import { useNodes } from '@/hooks';
 import { formatISOTime } from '@/utils';
-import type { Node } from '@/types/node';
+import type { Node, NodeStatus } from '@/types/node';
 
 const NodeList: React.FC = () => {
   const navigate = useNavigate();
-  const { data, isLoading } = useNodes();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const statusFilter = searchParams.get('status') as NodeStatus | null;
+  const { data, isLoading } = useNodes(statusFilter ? { status: statusFilter } : undefined);
+
+  const handleFilterChange = (
+    _pagination: any,
+    filters: Record<string, FilterValue | null>,
+  ) => {
+    const newStatus = filters.status?.[0] as string | undefined;
+    if (newStatus) {
+      setSearchParams({ status: newStatus });
+    } else {
+      setSearchParams({});
+    }
+  };
 
   const columns = [
     {
@@ -44,6 +60,12 @@ const NodeList: React.FC = () => {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
+      filters: [
+        { text: '活跃', value: 'active' },
+        { text: '离线', value: 'inactive' },
+        { text: '错误', value: 'error' },
+      ],
+      filteredValue: statusFilter ? [statusFilter] : null,
       render: (status: Node['status']) => (
         <StatusBadge status={status} type="node" />
       ),
@@ -76,6 +98,7 @@ const NodeList: React.FC = () => {
       dataSource={data || []}
       loading={isLoading}
       rowKey="nodeId"
+      onChange={handleFilterChange}
       pagination={false}
     />
   );
