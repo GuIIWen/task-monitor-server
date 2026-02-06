@@ -7,6 +7,10 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  paramsSerializer: {
+    // 数组参数使用 repeat 格式: status=running&status=failed
+    indexes: null,
+  },
 });
 
 // 请求拦截器
