@@ -70,14 +70,10 @@ const JobList: React.FC = () => {
   return (
     <Table
       columns={columns}
-      dataSource={data?.jobs || []}
+      dataSource={data || []}
       loading={isLoading}
       rowKey="jobId"
-      pagination={{
-        total: data?.total || 0,
-        pageSize: data?.pageSize || 20,
-        current: data?.page || 1,
-      }}
+      pagination={false}
     />
   );
 };

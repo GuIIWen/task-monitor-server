@@ -67,14 +67,10 @@ const NodeList: React.FC = () => {
   return (
     <Table
       columns={columns}
-      dataSource={data?.nodes || []}
+      dataSource={data || []}
       loading={isLoading}
       rowKey="nodeId"
-      pagination={{
-        total: data?.total || 0,
-        pageSize: data?.pageSize || 20,
-        current: data?.page || 1,
-      }}
+      pagination={false}
     />
   );
 };
