@@ -47,17 +47,32 @@ func (r *JobRepository) FindAll() ([]model.Job, error) {
 	return jobs, err
 }
 
-// Find 灵活查询作业，支持多条件筛选和分页
-// nodeID和status为空时忽略该条件
-func (r *JobRepository) Find(nodeID, status string, limit, offset int) ([]model.Job, error) {
+// allowedSortColumns 允许排序的列名映射（前端字段名 -> 数据库列名）
+var allowedSortColumns = map[string]string{
+	"jobName":   "job_name",
+	"jobType":   "job_type",
+	"framework": "framework",
+	"nodeId":    "node_id",
+	"status":    "status",
+	"startTime": "start_time",
+}
+
+// Find 灵活查询作业，支持多条件筛选、排序和分页
+func (r *JobRepository) Find(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, limit, offset int) ([]model.Job, error) {
 	var jobs []model.Job
 	query := r.db
 
 	if nodeID != "" {
 		query = query.Where("node_id = ?", nodeID)
 	}
-	if status != "" {
-		query = query.Where("status = ?", status)
+	if len(statuses) > 0 {
+		query = query.Where("status IN ?", statuses)
+	}
+	if len(jobTypes) > 0 {
+		query = query.Where("job_type IN ?", jobTypes)
+	}
+	if len(frameworks) > 0 {
+		query = query.Where("framework IN ?", frameworks)
 	}
 
 	if limit > 0 {
@@ -67,21 +82,36 @@ func (r *JobRepository) Find(nodeID, status string, limit, offset int) ([]model.
 		query = query.Offset(offset)
 	}
 
-	err := query.Order("start_time DESC, job_id DESC").Find(&jobs).Error
+	// 排序：验证字段名防止SQL注入
+	orderClause := "start_time DESC, job_id DESC"
+	if col, ok := allowedSortColumns[sortBy]; ok {
+		dir := "ASC"
+		if sortOrder == "desc" {
+			dir = "DESC"
+		}
+		orderClause = col + " " + dir + ", job_id DESC"
+	}
+
+	err := query.Order(orderClause).Find(&jobs).Error
 	return jobs, err
 }
 
 // Count 统计符合条件的作业数量
-// nodeID和status为空时忽略该条件
-func (r *JobRepository) Count(nodeID, status string) (int64, error) {
+func (r *JobRepository) Count(nodeID string, statuses []string, jobTypes []string, frameworks []string) (int64, error) {
 	var total int64
 	query := r.db.Model(&model.Job{})
 
 	if nodeID != "" {
 		query = query.Where("node_id = ?", nodeID)
 	}
-	if status != "" {
-		query = query.Where("status = ?", status)
+	if len(statuses) > 0 {
+		query = query.Where("status IN ?", statuses)
+	}
+	if len(jobTypes) > 0 {
+		query = query.Where("job_type IN ?", jobTypes)
+	}
+	if len(frameworks) > 0 {
+		query = query.Where("framework IN ?", frameworks)
 	}
 
 	err := query.Count(&total).Error

@@ -23,11 +23,15 @@ func NewJobHandler(jobService service.JobServiceInterface) *JobHandler {
 }
 
 // GetJobs 获取作业列表
-// 支持多条件筛选：nodeId和status可以单独使用或组合使用
-// 无参数时返回全量查询
+// 支持多条件筛选：nodeId、status、type、framework可以单独使用或组合使用
+// 支持排序：sortBy指定排序字段，sortOrder指定排序方向(asc/desc)
 func (h *JobHandler) GetJobs(c *gin.Context) {
-	status := c.Query("status")
 	nodeID := c.Query("nodeId")
+	statuses := c.QueryArray("status")
+	jobTypes := c.QueryArray("type")
+	frameworks := c.QueryArray("framework")
+	sortBy := c.Query("sortBy")
+	sortOrder := c.Query("sortOrder")
 
 	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
 	if err != nil || page < 1 {
@@ -41,8 +45,7 @@ func (h *JobHandler) GetJobs(c *gin.Context) {
 		pageSize = 100
 	}
 
-	// 使用灵活查询方法，支持多条件筛选和分页查询
-	jobs, total, err := h.jobService.GetJobs(nodeID, status, page, pageSize)
+	jobs, total, err := h.jobService.GetJobs(nodeID, statuses, jobTypes, frameworks, sortBy, sortOrder, page, pageSize)
 	if err != nil {
 		utils.ErrorResponse(c, 500, "Database error: "+err.Error())
 		return

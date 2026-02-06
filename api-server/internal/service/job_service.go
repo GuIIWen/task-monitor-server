@@ -58,9 +58,8 @@ func (s *JobService) GetAllJobs() ([]model.Job, error) {
 	return s.jobRepo.FindAll()
 }
 
-// GetJobs 灵活查询作业，支持多条件筛选
-// nodeID和status为空时忽略该条件
-func (s *JobService) GetJobs(nodeID, status string, page, pageSize int) ([]model.Job, int64, error) {
+// GetJobs 灵活查询作业，支持多条件筛选和排序
+func (s *JobService) GetJobs(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, page, pageSize int) ([]model.Job, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -68,13 +67,13 @@ func (s *JobService) GetJobs(nodeID, status string, page, pageSize int) ([]model
 		pageSize = 20
 	}
 
-	total, err := s.jobRepo.Count(nodeID, status)
+	total, err := s.jobRepo.Count(nodeID, statuses, jobTypes, frameworks)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	offset := (page - 1) * pageSize
-	jobs, err := s.jobRepo.Find(nodeID, status, pageSize, offset)
+	jobs, err := s.jobRepo.Find(nodeID, statuses, jobTypes, frameworks, sortBy, sortOrder, pageSize, offset)
 	if err != nil {
 		return nil, 0, err
 	}
