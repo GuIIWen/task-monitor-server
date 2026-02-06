@@ -70,10 +70,16 @@ const JobList: React.FC = () => {
   return (
     <Table
       columns={columns}
-      dataSource={data || []}
+      dataSource={data?.items || []}
       loading={isLoading}
       rowKey="jobId"
-      pagination={false}
+      pagination={{
+        total: data?.pagination?.total || 0,
+        pageSize: data?.pagination?.pageSize || 20,
+        current: data?.pagination?.page || 1,
+        showSizeChanger: true,
+        showTotal: (total) => `共 ${total} 条`,
+      }}
     />
   );
 };
