@@ -57,14 +57,9 @@ func (m *MockJobRepository) Count(nodeID string, statuses []string, jobTypes []s
 	return args.Get(0).(int64), args.Error(1)
 }
 
-func (m *MockJobRepository) FindGrouped(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, limit, offset int) ([]model.Job, error) {
-	args := m.Called(nodeID, statuses, jobTypes, frameworks, sortBy, sortOrder, limit, offset)
+func (m *MockJobRepository) FindFiltered(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string) ([]model.Job, error) {
+	args := m.Called(nodeID, statuses, jobTypes, frameworks, sortBy, sortOrder)
 	return args.Get(0).([]model.Job), args.Error(1)
-}
-
-func (m *MockJobRepository) CountGroups(nodeID string, statuses []string, jobTypes []string, frameworks []string) (int64, error) {
-	args := m.Called(nodeID, statuses, jobTypes, frameworks)
-	return args.Get(0).(int64), args.Error(1)
 }
 
 func (m *MockJobRepository) UpdateStatus(jobID, status, reason string) error {
@@ -336,29 +331,30 @@ func TestJobService_GetGroupedJobs(t *testing.T) {
 	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
 
 	nodeID := "node-001"
-	pgid := int64(1000)
-	startTime := int64(1770373780000)
+	// server.py (pid=100) 是父进程，EngineCore (pid=101, ppid=100) 是子进程
 	pid1 := int64(100)
 	pid2 := int64(101)
-	jobName1 := "VLLM::Worker_TP0"
-	jobName2 := "VLLM::Worker_TP1"
+	ppid1 := int64(1) // server.py 的父进程是 init
+	ppid2 := int64(100) // EngineCore 的父进程是 server.py
+	startTime1 := int64(1770373780000)
+	startTime2 := int64(1770373803000) // 晚 23 秒
+	jobName1 := "server.py"
+	jobName2 := "VLLM::EngineCore"
 	status := "running"
 
 	returnedJobs := []model.Job{
-		{JobID: "job-001", NodeID: &nodeID, PGID: &pgid, PID: &pid1, StartTime: &startTime, JobName: &jobName1, Status: &status},
-		{JobID: "job-002", NodeID: &nodeID, PGID: &pgid, PID: &pid2, StartTime: &startTime, JobName: &jobName2, Status: &status},
+		{JobID: "job-001", NodeID: &nodeID, PID: &pid1, PPID: &ppid1, StartTime: &startTime1, JobName: &jobName1, Status: &status},
+		{JobID: "job-002", NodeID: &nodeID, PID: &pid2, PPID: &ppid2, StartTime: &startTime2, JobName: &jobName2, Status: &status},
 	}
 
 	var statuses, jobTypes, frameworks []string
 	var cardCounts []int
 
-	mockJobRepo.On("CountGroups", "", statuses, jobTypes, frameworks).Return(int64(5), nil)
-	mockJobRepo.On("FindGrouped", "", statuses, jobTypes, frameworks, "", "", 20, 0).Return(returnedJobs, nil)
+	mockJobRepo.On("FindFiltered", "", statuses, jobTypes, frameworks, "", "").Return(returnedJobs, nil)
 
-	// 两个进程都在 npu_id=0 上，去重后卡数=1
 	npuMap := map[int64][]int{
-		100: {0},
-		101: {0},
+		100: {7},
+		101: {7},
 	}
 	mockMetricsRepo.On("FindNPUCardsByPIDs", "node-001", mock.MatchedBy(func(pids []int64) bool {
 		return len(pids) == 2
@@ -367,8 +363,9 @@ func TestJobService_GetGroupedJobs(t *testing.T) {
 	groups, total, err := svc.GetGroupedJobs("", statuses, jobTypes, frameworks, cardCounts, "", "", 1, 20)
 
 	assert.NoError(t, err)
-	assert.Equal(t, int64(5), total)
+	assert.Equal(t, int64(1), total)
 	assert.Len(t, groups, 1)
+	// server.py 应该是 MainJob（它是根进程）
 	assert.Equal(t, "job-001", groups[0].MainJob.JobID)
 	assert.Len(t, groups[0].ChildJobs, 1)
 	assert.Equal(t, "job-002", groups[0].ChildJobs[0].JobID)
@@ -387,10 +384,11 @@ func TestJobService_GetGroupedJobs_MultipleGroups(t *testing.T) {
 	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
 
 	nodeID := "node-001"
-	pgid1 := int64(1000)
-	pgid2 := int64(2000)
+	// 两个独立进程，ppid 都不在集合中，各自成组
 	pid1 := int64(100)
 	pid2 := int64(200)
+	ppid1 := int64(1)
+	ppid2 := int64(1)
 	startTime1 := int64(1770373780000)
 	startTime2 := int64(1770373790000)
 	jobName1 := "train.py"
@@ -398,17 +396,15 @@ func TestJobService_GetGroupedJobs_MultipleGroups(t *testing.T) {
 	status := "running"
 
 	returnedJobs := []model.Job{
-		{JobID: "job-001", NodeID: &nodeID, PGID: &pgid1, PID: &pid1, StartTime: &startTime1, JobName: &jobName1, Status: &status},
-		{JobID: "job-002", NodeID: &nodeID, PGID: &pgid2, PID: &pid2, StartTime: &startTime2, JobName: &jobName2, Status: &status},
+		{JobID: "job-001", NodeID: &nodeID, PID: &pid1, PPID: &ppid1, StartTime: &startTime1, JobName: &jobName1, Status: &status},
+		{JobID: "job-002", NodeID: &nodeID, PID: &pid2, PPID: &ppid2, StartTime: &startTime2, JobName: &jobName2, Status: &status},
 	}
 
 	var statuses, jobTypes, frameworks []string
 	var cardCounts []int
 
-	mockJobRepo.On("CountGroups", "", statuses, jobTypes, frameworks).Return(int64(2), nil)
-	mockJobRepo.On("FindGrouped", "", statuses, jobTypes, frameworks, "", "", 20, 0).Return(returnedJobs, nil)
+	mockJobRepo.On("FindFiltered", "", statuses, jobTypes, frameworks, "", "").Return(returnedJobs, nil)
 
-	// 没有 NPU 记录，返回空 map
 	npuMap := map[int64][]int{}
 	mockMetricsRepo.On("FindNPUCardsByPIDs", "node-001", mock.MatchedBy(func(pids []int64) bool {
 		return len(pids) == 2
@@ -436,29 +432,32 @@ func TestJobService_GetGroupedJobs_CardCountFilterBeforePagination(t *testing.T)
 	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
 
 	nodeID := "node-001"
-	pgid1 := int64(1000)
-	pgid2 := int64(2000)
-	startTime1 := int64(1770373780000)
-	startTime2 := int64(1770373790000)
+	// 组A: pid=100 (ppid=1) 是父, pid=101 (ppid=100) 是子 → 通过 ppid 合并
+	// 组B: pid=200 (ppid=1) 独立
 	pid1 := int64(100)
 	pid2 := int64(101)
 	pid3 := int64(200)
+	ppid1 := int64(1)
+	ppid2 := int64(100)
+	ppid3 := int64(1)
+	startTime1 := int64(1770373780000)
+	startTime2 := int64(1770373780000)
+	startTime3 := int64(1770373790000)
 	status := "running"
 	jobName1 := "group-a-main"
 	jobName2 := "group-a-child"
 	jobName3 := "group-b-main"
 
-	// 第一组卡数=1，第二组卡数=2
 	returnedJobs := []model.Job{
-		{JobID: "job-001", NodeID: &nodeID, PGID: &pgid1, PID: &pid1, StartTime: &startTime1, JobName: &jobName1, Status: &status},
-		{JobID: "job-002", NodeID: &nodeID, PGID: &pgid1, PID: &pid2, StartTime: &startTime1, JobName: &jobName2, Status: &status},
-		{JobID: "job-003", NodeID: &nodeID, PGID: &pgid2, PID: &pid3, StartTime: &startTime2, JobName: &jobName3, Status: &status},
+		{JobID: "job-001", NodeID: &nodeID, PID: &pid1, PPID: &ppid1, StartTime: &startTime1, JobName: &jobName1, Status: &status},
+		{JobID: "job-002", NodeID: &nodeID, PID: &pid2, PPID: &ppid2, StartTime: &startTime2, JobName: &jobName2, Status: &status},
+		{JobID: "job-003", NodeID: &nodeID, PID: &pid3, PPID: &ppid3, StartTime: &startTime3, JobName: &jobName3, Status: &status},
 	}
 
 	var statuses, jobTypes, frameworks []string
 	cardCounts := []int{2}
 
-	mockJobRepo.On("FindGrouped", "", statuses, jobTypes, frameworks, "", "", 0, 0).Return(returnedJobs, nil)
+	mockJobRepo.On("FindFiltered", "", statuses, jobTypes, frameworks, "", "").Return(returnedJobs, nil)
 
 	npuMap := map[int64][]int{
 		100: {0},
@@ -466,14 +465,7 @@ func TestJobService_GetGroupedJobs_CardCountFilterBeforePagination(t *testing.T)
 		200: {0, 1},
 	}
 	mockMetricsRepo.On("FindNPUCardsByPIDs", "node-001", mock.MatchedBy(func(pids []int64) bool {
-		if len(pids) != 3 {
-			return false
-		}
-		seen := make(map[int64]bool, len(pids))
-		for _, pid := range pids {
-			seen[pid] = true
-		}
-		return seen[100] && seen[101] && seen[200]
+		return len(pids) == 3
 	})).Return(npuMap, nil)
 
 	groups, total, err := svc.GetGroupedJobs("", statuses, jobTypes, frameworks, cardCounts, "", "", 1, 1)
@@ -497,20 +489,20 @@ func TestJobService_GetGroupedJobs_CardCountFilterPageOutOfRange(t *testing.T) {
 	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
 
 	nodeID := "node-001"
-	pgid := int64(1000)
-	startTime := int64(1770373780000)
 	pid := int64(100)
+	ppid := int64(1)
+	startTime := int64(1770373780000)
 	status := "running"
 	jobName := "group-a-main"
 
 	returnedJobs := []model.Job{
-		{JobID: "job-001", NodeID: &nodeID, PGID: &pgid, PID: &pid, StartTime: &startTime, JobName: &jobName, Status: &status},
+		{JobID: "job-001", NodeID: &nodeID, PID: &pid, PPID: &ppid, StartTime: &startTime, JobName: &jobName, Status: &status},
 	}
 
 	var statuses, jobTypes, frameworks []string
 	cardCounts := []int{1}
 
-	mockJobRepo.On("FindGrouped", "", statuses, jobTypes, frameworks, "", "", 0, 0).Return(returnedJobs, nil)
+	mockJobRepo.On("FindFiltered", "", statuses, jobTypes, frameworks, "", "").Return(returnedJobs, nil)
 	mockMetricsRepo.On("FindNPUCardsByPIDs", "node-001", mock.MatchedBy(func(pids []int64) bool {
 		return len(pids) == 1 && pids[0] == 100
 	})).Return(map[int64][]int{100: {0}}, nil)
@@ -538,5 +530,64 @@ func TestJobService_GetDistinctCardCounts(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, []int{1, 2, 4, 8}, counts)
+	mockMetricsRepo.AssertExpectations(t)
+}
+
+func TestJobService_GetGroupedJobs_PPIDChain(t *testing.T) {
+	mockJobRepo := new(MockJobRepository)
+	mockParamRepo := new(MockParameterRepository)
+	mockCodeRepo := new(MockCodeRepository)
+	mockMetricsRepo := new(MockMetricsRepository)
+
+	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
+
+	nodeID := "node-001"
+	// 三层进程树: A(pid=100) → B(pid=200, ppid=100) → C(pid=300, ppid=200)
+	pidA := int64(100)
+	pidB := int64(200)
+	pidC := int64(300)
+	ppidA := int64(1)
+	ppidB := int64(100)
+	ppidC := int64(200)
+	startA := int64(1770373780000)
+	startB := int64(1770373781000)
+	startC := int64(1770373782000)
+	nameA := "server.py"
+	nameB := "manager"
+	nameC := "VLLM::Worker_TP0"
+	status := "running"
+
+	returnedJobs := []model.Job{
+		{JobID: "job-A", NodeID: &nodeID, PID: &pidA, PPID: &ppidA, StartTime: &startA, JobName: &nameA, Status: &status},
+		{JobID: "job-B", NodeID: &nodeID, PID: &pidB, PPID: &ppidB, StartTime: &startB, JobName: &nameB, Status: &status},
+		{JobID: "job-C", NodeID: &nodeID, PID: &pidC, PPID: &ppidC, StartTime: &startC, JobName: &nameC, Status: &status},
+	}
+
+	var statuses, jobTypes, frameworks []string
+	var cardCounts []int
+
+	mockJobRepo.On("FindFiltered", "", statuses, jobTypes, frameworks, "", "").Return(returnedJobs, nil)
+
+	npuMap := map[int64][]int{
+		100: {0},
+		200: {0},
+		300: {1},
+	}
+	mockMetricsRepo.On("FindNPUCardsByPIDs", "node-001", mock.MatchedBy(func(pids []int64) bool {
+		return len(pids) == 3
+	})).Return(npuMap, nil)
+
+	groups, total, err := svc.GetGroupedJobs("", statuses, jobTypes, frameworks, cardCounts, "", "", 1, 20)
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	assert.Len(t, groups, 1)
+	// A 应该是 MainJob（根进程）
+	assert.Equal(t, "job-A", groups[0].MainJob.JobID)
+	assert.Len(t, groups[0].ChildJobs, 2)
+	// 卡数=2（NPU 0 和 NPU 1）
+	assert.NotNil(t, groups[0].CardCount)
+	assert.Equal(t, 2, *groups[0].CardCount)
+	mockJobRepo.AssertExpectations(t)
 	mockMetricsRepo.AssertExpectations(t)
 }
