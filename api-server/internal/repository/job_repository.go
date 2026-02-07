@@ -2,6 +2,7 @@ package repository
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/task-monitor/api-server/internal/model"
 	"gorm.io/gorm"
@@ -139,9 +140,38 @@ func (r *JobRepository) applyFilters(query *gorm.DB, nodeID string, statuses []s
 
 // groupKey 分组键
 type groupKey struct {
-	NodeID    string `gorm:"column:node_id"`
-	PGID      int64  `gorm:"column:pgid"`
-	StartTime int64  `gorm:"column:start_time"`
+	NodeID    *string `gorm:"column:node_id"`
+	PGID      *int64  `gorm:"column:pgid"`
+	StartTime *int64  `gorm:"column:start_time"`
+}
+
+// buildNullableGroupCondition 构建支持 NULL 值的分组匹配条件
+func buildNullableGroupCondition(g groupKey) (string, []interface{}) {
+	parts := make([]string, 0, 3)
+	args := make([]interface{}, 0, 3)
+
+	if g.NodeID == nil {
+		parts = append(parts, "node_id IS NULL")
+	} else {
+		parts = append(parts, "node_id = ?")
+		args = append(args, *g.NodeID)
+	}
+
+	if g.PGID == nil {
+		parts = append(parts, "pgid IS NULL")
+	} else {
+		parts = append(parts, "pgid = ?")
+		args = append(args, *g.PGID)
+	}
+
+	if g.StartTime == nil {
+		parts = append(parts, "start_time IS NULL")
+	} else {
+		parts = append(parts, "start_time = ?")
+		args = append(args, *g.StartTime)
+	}
+
+	return "(" + strings.Join(parts, " AND ") + ")", args
 }
 
 // CountGroups 统计按 node_id+pgid+start_time 分组后的组数
@@ -158,14 +188,14 @@ func (r *JobRepository) CountGroups(nodeID string, statuses []string, jobTypes [
 // FindGrouped 按 node_id+pgid 分组查询作业
 // 两阶段查询：先查分组列表（带分页），再查各组下的所有作业
 func (r *JobRepository) FindGrouped(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, limit, offset int) ([]model.Job, error) {
-	// 阶段1：查出分页后的分组 (node_id, pgid) 列表
-	orderClause := "MIN(start_time) DESC"
+	// 阶段1：查出分页后的分组 (node_id, pgid, start_time) 列表
+	orderClause := "MIN(start_time) DESC, node_id ASC, pgid ASC, start_time ASC"
 	if col, ok := allowedSortColumns[sortBy]; ok {
 		dir := "ASC"
 		if sortOrder == "desc" {
 			dir = "DESC"
 		}
-		orderClause = fmt.Sprintf("MIN(%s) %s", col, dir)
+		orderClause = fmt.Sprintf("MIN(%s) %s, node_id ASC, pgid ASC, start_time ASC", col, dir)
 	}
 
 	groupQuery := r.db.Model(&model.Job{}).Select("node_id, pgid, start_time")
@@ -193,10 +223,11 @@ func (r *JobRepository) FindGrouped(nodeID string, statuses []string, jobTypes [
 	query := r.db.Session(&gorm.Session{})
 	orConditions := r.db.Session(&gorm.Session{})
 	for i, g := range groups {
+		condition, args := buildNullableGroupCondition(g)
 		if i == 0 {
-			orConditions = orConditions.Where("(node_id = ? AND pgid = ? AND start_time = ?)", g.NodeID, g.PGID, g.StartTime)
+			orConditions = orConditions.Where(condition, args...)
 		} else {
-			orConditions = orConditions.Or("(node_id = ? AND pgid = ? AND start_time = ?)", g.NodeID, g.PGID, g.StartTime)
+			orConditions = orConditions.Or(condition, args...)
 		}
 	}
 	query = query.Where(orConditions)
@@ -210,4 +241,3 @@ func (r *JobRepository) FindGrouped(nodeID string, statuses []string, jobTypes [
 
 	return jobs, nil
 }
-

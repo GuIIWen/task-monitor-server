@@ -427,6 +427,103 @@ func TestJobService_GetGroupedJobs_MultipleGroups(t *testing.T) {
 	mockMetricsRepo.AssertExpectations(t)
 }
 
+func TestJobService_GetGroupedJobs_CardCountFilterBeforePagination(t *testing.T) {
+	mockJobRepo := new(MockJobRepository)
+	mockParamRepo := new(MockParameterRepository)
+	mockCodeRepo := new(MockCodeRepository)
+	mockMetricsRepo := new(MockMetricsRepository)
+
+	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
+
+	nodeID := "node-001"
+	pgid1 := int64(1000)
+	pgid2 := int64(2000)
+	startTime1 := int64(1770373780000)
+	startTime2 := int64(1770373790000)
+	pid1 := int64(100)
+	pid2 := int64(101)
+	pid3 := int64(200)
+	status := "running"
+	jobName1 := "group-a-main"
+	jobName2 := "group-a-child"
+	jobName3 := "group-b-main"
+
+	// 第一组卡数=1，第二组卡数=2
+	returnedJobs := []model.Job{
+		{JobID: "job-001", NodeID: &nodeID, PGID: &pgid1, PID: &pid1, StartTime: &startTime1, JobName: &jobName1, Status: &status},
+		{JobID: "job-002", NodeID: &nodeID, PGID: &pgid1, PID: &pid2, StartTime: &startTime1, JobName: &jobName2, Status: &status},
+		{JobID: "job-003", NodeID: &nodeID, PGID: &pgid2, PID: &pid3, StartTime: &startTime2, JobName: &jobName3, Status: &status},
+	}
+
+	var statuses, jobTypes, frameworks []string
+	cardCounts := []int{2}
+
+	mockJobRepo.On("FindGrouped", "", statuses, jobTypes, frameworks, "", "", 0, 0).Return(returnedJobs, nil)
+
+	npuMap := map[int64][]int{
+		100: {0},
+		101: {0},
+		200: {0, 1},
+	}
+	mockMetricsRepo.On("FindNPUCardsByPIDs", "node-001", mock.MatchedBy(func(pids []int64) bool {
+		if len(pids) != 3 {
+			return false
+		}
+		seen := make(map[int64]bool, len(pids))
+		for _, pid := range pids {
+			seen[pid] = true
+		}
+		return seen[100] && seen[101] && seen[200]
+	})).Return(npuMap, nil)
+
+	groups, total, err := svc.GetGroupedJobs("", statuses, jobTypes, frameworks, cardCounts, "", "", 1, 1)
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	assert.Len(t, groups, 1)
+	assert.Equal(t, "job-003", groups[0].MainJob.JobID)
+	assert.NotNil(t, groups[0].CardCount)
+	assert.Equal(t, 2, *groups[0].CardCount)
+	mockJobRepo.AssertExpectations(t)
+	mockMetricsRepo.AssertExpectations(t)
+}
+
+func TestJobService_GetGroupedJobs_CardCountFilterPageOutOfRange(t *testing.T) {
+	mockJobRepo := new(MockJobRepository)
+	mockParamRepo := new(MockParameterRepository)
+	mockCodeRepo := new(MockCodeRepository)
+	mockMetricsRepo := new(MockMetricsRepository)
+
+	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
+
+	nodeID := "node-001"
+	pgid := int64(1000)
+	startTime := int64(1770373780000)
+	pid := int64(100)
+	status := "running"
+	jobName := "group-a-main"
+
+	returnedJobs := []model.Job{
+		{JobID: "job-001", NodeID: &nodeID, PGID: &pgid, PID: &pid, StartTime: &startTime, JobName: &jobName, Status: &status},
+	}
+
+	var statuses, jobTypes, frameworks []string
+	cardCounts := []int{1}
+
+	mockJobRepo.On("FindGrouped", "", statuses, jobTypes, frameworks, "", "", 0, 0).Return(returnedJobs, nil)
+	mockMetricsRepo.On("FindNPUCardsByPIDs", "node-001", mock.MatchedBy(func(pids []int64) bool {
+		return len(pids) == 1 && pids[0] == 100
+	})).Return(map[int64][]int{100: {0}}, nil)
+
+	groups, total, err := svc.GetGroupedJobs("", statuses, jobTypes, frameworks, cardCounts, "", "", 2, 1)
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	assert.Empty(t, groups)
+	mockJobRepo.AssertExpectations(t)
+	mockMetricsRepo.AssertExpectations(t)
+}
+
 func TestJobService_GetDistinctCardCounts(t *testing.T) {
 	mockJobRepo := new(MockJobRepository)
 	mockParamRepo := new(MockParameterRepository)

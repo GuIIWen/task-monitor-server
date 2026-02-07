@@ -9,10 +9,10 @@ import (
 
 // JobService 作业服务
 type JobService struct {
-	jobRepo       repository.JobRepositoryInterface
-	paramRepo     repository.ParameterRepositoryInterface
-	codeRepo      repository.CodeRepositoryInterface
-	metricsRepo   repository.MetricsRepositoryInterface
+	jobRepo     repository.JobRepositoryInterface
+	paramRepo   repository.ParameterRepositoryInterface
+	codeRepo    repository.CodeRepositoryInterface
+	metricsRepo repository.MetricsRepositoryInterface
 }
 
 // NewJobService 创建作业服务
@@ -132,16 +132,47 @@ func (s *JobService) GetGroupedJobs(nodeID string, statuses []string, jobTypes [
 	if pageSize < 1 {
 		pageSize = 20
 	}
+	offset := (page - 1) * pageSize
+
+	// 当存在 cardCount 筛选时，需要先拿到完整分组后再过滤，否则会出现分页总数错误/空页问题。
+	if len(cardCounts) > 0 {
+		jobs, err := s.jobRepo.FindGrouped(nodeID, statuses, jobTypes, frameworks, sortBy, sortOrder, 0, 0)
+		if err != nil {
+			return nil, 0, fmt.Errorf("find grouped for cardCount filter: %w", err)
+		}
+
+		groups, err := s.buildGroupedJobs(jobs)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		groups = filterJobGroupsByCardCounts(groups, cardCounts)
+		total := int64(len(groups))
+		return paginateJobGroups(groups, offset, pageSize), total, nil
+	}
 
 	total, err := s.jobRepo.CountGroups(nodeID, statuses, jobTypes, frameworks)
 	if err != nil {
 		return nil, 0, fmt.Errorf("count groups: %w", err)
 	}
 
-	offset := (page - 1) * pageSize
 	jobs, err := s.jobRepo.FindGrouped(nodeID, statuses, jobTypes, frameworks, sortBy, sortOrder, pageSize, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("find grouped: %w", err)
+	}
+
+	groups, err := s.buildGroupedJobs(jobs)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return groups, total, nil
+}
+
+// buildGroupedJobs 将仓储层返回的 jobs 组装为分组结果，并补充卡数信息
+func (s *JobService) buildGroupedJobs(jobs []model.Job) ([]JobGroup, error) {
+	if len(jobs) == 0 {
+		return []JobGroup{}, nil
 	}
 
 	// 按 node_id+pgid+start_time 组装分组
@@ -156,18 +187,10 @@ func (s *JobService) GetGroupedJobs(nodeID string, statuses []string, jobTypes [
 	for i := range jobs {
 		job := jobs[i]
 		var nid string
-		var pgid int64
-		var startTime int64
 		if job.NodeID != nil {
 			nid = *job.NodeID
 		}
-		if job.PGID != nil {
-			pgid = *job.PGID
-		}
-		if job.StartTime != nil {
-			startTime = *job.StartTime
-		}
-		key := fmt.Sprintf("%s_%d_%d", nid, pgid, startTime)
+		key := buildGroupIdentity(job)
 
 		if g, ok := groupMap[key]; ok {
 			g.group.ChildJobs = append(g.group.ChildJobs, job)
@@ -205,9 +228,9 @@ func (s *JobService) GetGroupedJobs(nodeID string, statuses []string, jobTypes [
 		if nid == "" || len(pids) == 0 {
 			continue
 		}
-		npuMap, err := s.metricsRepo.FindNPUCardsByPIDs(nid, pids)
+		npuMap, err := s.metricsRepo.FindNPUCardsByPIDs(nid, dedupeInt64(pids))
 		if err != nil {
-			return nil, 0, fmt.Errorf("find npu cards: %w", err)
+			return nil, fmt.Errorf("find npu cards: %w", err)
 		}
 		nodeNPUMap[nid] = npuMap
 	}
@@ -232,19 +255,13 @@ func (s *JobService) GetGroupedJobs(nodeID string, statuses []string, jobTypes [
 		}
 	}
 
-	// 按查询顺序组装结果（如有 cardCount 筛选则过滤）
+	// 按查询顺序组装结果
 	groups := make([]JobGroup, 0, len(groupOrder))
 	for _, key := range groupOrder {
-		g := groupMap[key].group
-		if len(cardCounts) > 0 {
-			if !matchCardCount(g.CardCount, cardCounts) {
-				continue
-			}
-		}
-		groups = append(groups, *g)
+		groups = append(groups, *groupMap[key].group)
 	}
 
-	return groups, total, nil
+	return groups, nil
 }
 
 // matchCardCount 检查卡数是否在筛选列表中
@@ -258,4 +275,69 @@ func matchCardCount(cardCount *int, cardCounts []int) bool {
 		}
 	}
 	return false
+}
+
+// filterJobGroupsByCardCounts 根据 cardCount 条件过滤分组
+func filterJobGroupsByCardCounts(groups []JobGroup, cardCounts []int) []JobGroup {
+	if len(cardCounts) == 0 {
+		return groups
+	}
+
+	filtered := make([]JobGroup, 0, len(groups))
+	for _, group := range groups {
+		if matchCardCount(group.CardCount, cardCounts) {
+			filtered = append(filtered, group)
+		}
+	}
+	return filtered
+}
+
+// paginateJobGroups 对分组结果进行内存分页
+func paginateJobGroups(groups []JobGroup, offset, limit int) []JobGroup {
+	if offset >= len(groups) {
+		return []JobGroup{}
+	}
+	end := offset + limit
+	if end > len(groups) {
+		end = len(groups)
+	}
+	return groups[offset:end]
+}
+
+// buildGroupIdentity 生成可区分 NULL 与零值的分组键
+func buildGroupIdentity(job model.Job) string {
+	return fmt.Sprintf(
+		"node:%s|pgid:%s|start:%s",
+		nullableString(job.NodeID),
+		nullableInt64(job.PGID),
+		nullableInt64(job.StartTime),
+	)
+}
+
+func nullableString(v *string) string {
+	if v == nil {
+		return "<nil>"
+	}
+	return *v
+}
+
+func nullableInt64(v *int64) string {
+	if v == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("%d", *v)
+}
+
+// dedupeInt64 去重并保留原始顺序，避免重复 pid 放大 IN 条件
+func dedupeInt64(items []int64) []int64 {
+	seen := make(map[int64]struct{}, len(items))
+	result := make([]int64, 0, len(items))
+	for _, item := range items {
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		result = append(result, item)
+	}
+	return result
 }

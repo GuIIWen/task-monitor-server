@@ -34,7 +34,7 @@ func (r *MetricsRepository) FindNPUCardsByPIDs(nodeID string, pids []int64) (map
 	var rows []npuPidRow
 	err := r.db.Table("npu_processes").
 		Select("DISTINCT pid, npu_id").
-		Where("node_id = ? AND pid IN ?", nodeID, pids).
+		Where("node_id = ? AND pid IN ? AND status = ?", nodeID, pids, "running").
 		Find(&rows).Error
 	if err != nil {
 		return nil, err
@@ -59,7 +59,7 @@ func (r *MetricsRepository) DistinctNPUCardCounts() ([]int, error) {
 	err := r.db.Raw(`
 		SELECT COUNT(DISTINCT np.npu_id) AS card_count
 		FROM jobs j
-		INNER JOIN npu_processes np ON j.node_id = np.node_id AND j.pid = np.pid
+		INNER JOIN npu_processes np ON j.node_id = np.node_id AND j.pid = np.pid AND np.status = 'running'
 		GROUP BY j.node_id, j.pgid, j.start_time
 		HAVING COUNT(DISTINCT np.npu_id) > 0
 	`).Scan(&rows).Error

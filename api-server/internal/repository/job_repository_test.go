@@ -7,6 +7,30 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestBuildNullableGroupCondition(t *testing.T) {
+	strVal := "node-001"
+	pgidVal := int64(1001)
+	startVal := int64(1700000000000)
+
+	t.Run("all non-null", func(t *testing.T) {
+		condition, args := buildNullableGroupCondition(groupKey{
+			NodeID:    &strVal,
+			PGID:      &pgidVal,
+			StartTime: &startVal,
+		})
+
+		assert.Equal(t, "(node_id = ? AND pgid = ? AND start_time = ?)", condition)
+		assert.Equal(t, []interface{}{strVal, pgidVal, startVal}, args)
+	})
+
+	t.Run("all null", func(t *testing.T) {
+		condition, args := buildNullableGroupCondition(groupKey{})
+
+		assert.Equal(t, "(node_id IS NULL AND pgid IS NULL AND start_time IS NULL)", condition)
+		assert.Empty(t, args)
+	})
+}
+
 func TestJobRepository_FindByID(t *testing.T) {
 	db, mock, cleanup := setupMockDB(t)
 	defer cleanup()
@@ -108,5 +132,30 @@ func TestJobRepository_Count(t *testing.T) {
 	total, err := repo.Count("node-001", []string{"running"}, nil, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(5), total)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestJobRepository_FindGrouped_NullGroupKeys(t *testing.T) {
+	db, mock, cleanup := setupMockDB(t)
+	defer cleanup()
+
+	repo := NewJobRepository(db)
+
+	groupRows := sqlmock.NewRows([]string{"node_id", "pgid", "start_time"}).
+		AddRow(nil, nil, nil)
+
+	mock.ExpectQuery("SELECT .* FROM `jobs` GROUP BY node_id, pgid, start_time ORDER BY MIN\\(start_time\\) DESC, node_id ASC, pgid ASC, start_time ASC LIMIT 20").
+		WillReturnRows(groupRows)
+
+	jobRows := sqlmock.NewRows([]string{"job_id", "node_id", "pgid", "start_time"}).
+		AddRow("job-001", nil, nil, nil)
+
+	mock.ExpectQuery("SELECT \\* FROM `jobs` WHERE .*node_id IS NULL AND pgid IS NULL AND start_time IS NULL.* ORDER BY node_id, pgid, start_time, pid ASC").
+		WillReturnRows(jobRows)
+
+	jobs, err := repo.FindGrouped("", nil, nil, nil, "", "", 20, 0)
+	assert.NoError(t, err)
+	assert.Len(t, jobs, 1)
+	assert.Equal(t, "job-001", jobs[0].JobID)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
