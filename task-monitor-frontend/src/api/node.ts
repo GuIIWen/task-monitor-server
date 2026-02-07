@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { Node, NodeListParams, NodeListResponse, NodeStats } from '@/types/node';
+import type { Node, NodeListParams, NodeStats } from '@/types/node';
 
 /**
  * 节点相关API
@@ -8,7 +8,7 @@ export const nodeApi = {
   /**
    * 获取节点列表
    */
-  getNodes: async (params?: NodeListParams): Promise<NodeListResponse> => {
+  getNodes: async (params?: NodeListParams): Promise<Node[]> => {
     return apiClient.get('/nodes', { params });
   },
 

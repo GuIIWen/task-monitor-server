@@ -128,7 +128,7 @@ const JobList: React.FC = () => {
       dataIndex: ['mainJob', 'jobName'],
       key: 'jobName',
       sorter: true,
-      sortOrder: params.sortBy === 'jobName' ? (params.sortOrder === 'asc' ? 'ascend' : 'descend') : null,
+      sortOrder: params.sortBy === 'jobName' ? (params.sortOrder === 'asc' ? 'ascend' as const : 'descend' as const) : null,
       render: (text: string, record: JobGroup) => text || record.mainJob.jobId,
     },
     {
@@ -143,7 +143,7 @@ const JobList: React.FC = () => {
       ],
       filteredValue: params.type || null,
       sorter: true,
-      sortOrder: params.sortBy === 'jobType' ? (params.sortOrder === 'asc' ? 'ascend' : 'descend') : null,
+      sortOrder: params.sortBy === 'jobType' ? (params.sortOrder === 'asc' ? 'ascend' as const : 'descend' as const) : null,
       render: (type: Job['jobType']) => (
         type ? <Tag>{JOB_TYPE_MAP[type] || type}</Tag> : '-'
       ),
@@ -160,7 +160,7 @@ const JobList: React.FC = () => {
       ],
       filteredValue: params.framework || null,
       sorter: true,
-      sortOrder: params.sortBy === 'framework' ? (params.sortOrder === 'asc' ? 'ascend' : 'descend') : null,
+      sortOrder: params.sortBy === 'framework' ? (params.sortOrder === 'asc' ? 'ascend' as const : 'descend' as const) : null,
       render: (text: string) => text ? <Tag color="blue">{text}</Tag> : '-',
     },
     {
@@ -171,7 +171,7 @@ const JobList: React.FC = () => {
       filteredValue: params.nodeId ? [params.nodeId] : null,
       filterMultiple: false,
       sorter: true,
-      sortOrder: params.sortBy === 'nodeId' ? (params.sortOrder === 'asc' ? 'ascend' : 'descend') : null,
+      sortOrder: params.sortBy === 'nodeId' ? (params.sortOrder === 'asc' ? 'ascend' as const : 'descend' as const) : null,
       render: (text: string) => {
         const node = (nodesData || []).find((n: any) => n.nodeId === text);
         return node?.hostname || text || '-';
@@ -190,7 +190,7 @@ const JobList: React.FC = () => {
       ],
       filteredValue: params.status || null,
       sorter: true,
-      sortOrder: params.sortBy === 'status' ? (params.sortOrder === 'asc' ? 'ascend' : 'descend') : null,
+      sortOrder: params.sortBy === 'status' ? (params.sortOrder === 'asc' ? 'ascend' as const : 'descend' as const) : null,
       render: (status: Job['status']) => (
         <StatusBadge status={status} type="job" />
       ),
@@ -200,7 +200,7 @@ const JobList: React.FC = () => {
       dataIndex: ['mainJob', 'startTime'],
       key: 'startTime',
       sorter: true,
-      sortOrder: params.sortBy === 'startTime' ? (params.sortOrder === 'asc' ? 'ascend' : 'descend') : null,
+      sortOrder: params.sortBy === 'startTime' ? (params.sortOrder === 'asc' ? 'ascend' as const : 'descend' as const) : null,
       render: (time: number) => formatTimestamp(time),
     },
     {
@@ -211,7 +211,7 @@ const JobList: React.FC = () => {
       filters: cardCountFilters,
       filteredValue: params.cardCount || null,
       sorter: true,
-      sortOrder: params.sortBy === 'cardCount' ? (params.sortOrder === 'asc' ? 'ascend' : 'descend') : null,
+      sortOrder: params.sortBy === 'cardCount' ? (params.sortOrder === 'asc' ? 'ascend' as const : 'descend' as const) : null,
       render: (count: number | null) => (
         count === null
           ? <Tag color="default">unknown</Tag>
