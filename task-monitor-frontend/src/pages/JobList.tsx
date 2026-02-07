@@ -287,7 +287,7 @@ const JobList: React.FC = () => {
             size="small"
           />
         ),
-        rowExpandable: (record) => record.cardCount === null || record.cardCount > 1,
+        rowExpandable: (record) => record.childJobs.length > 0,
       }}
       pagination={{
         total: data?.pagination?.total || 0,

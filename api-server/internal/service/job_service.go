@@ -146,12 +146,24 @@ func (s *JobService) GetGroupedJobs(nodeID string, statuses []string, jobTypes [
 		return nil, 0, err
 	}
 
-	// 3. 应用 cardCount 筛选
+	// 3. 过滤掉纯停止词进程的独立组（无业务子进程的 shell/容器运行时进程）
+	groups = filterStopNameGroups(groups)
+
+	// 4. 应用 cardCount 筛选
 	groups = filterJobGroupsByCardCounts(groups, cardCounts)
 
-	// 4. 内存分页
+	// 5. 内存分页
 	total := int64(len(groups))
 	return paginateJobGroups(groups, offset, pageSize), total, nil
+}
+
+// ppidStopNames 非业务进程停止词，Union-Find 合并时不穿越这些进程
+var ppidStopNames = map[string]bool{
+	"bash": true, "sh": true, "zsh": true, "fish": true, "csh": true, "tcsh": true, "dash": true,
+	"sshd": true, "login": true, "su": true, "sudo": true, "screen": true, "tmux": true,
+	"containerd-shim": true, "containerd-shim-runc-v2": true, "containerd": true,
+	"dockerd": true, "docker": true, "runc": true,
+	"systemd": true, "init": true, "supervisord": true,
 }
 
 // buildGroupedJobs 使用 Union-Find 按 ppid 链路构建进程树分组，并补充卡数信息
@@ -182,15 +194,20 @@ func (s *JobService) buildGroupedJobs(jobs []model.Job) ([]JobGroup, error) {
 	}
 
 	// 合并：如果 ppid 在同一 node 的集合中，合并到 ppid 的根
+	// 但不穿越停止词进程（shell/容器运行时），避免不相关作业被串联
 	for _, job := range jobs {
 		if job.PID == nil || job.PPID == nil {
 			continue
 		}
 		ppid := *job.PPID
 		if _, exists := parent[ppid]; exists {
-			// 确保同一 node_id 才合并
 			ppidIdx := pidIndex[ppid]
 			parentJob := jobs[ppidIdx]
+			// 父进程是停止词进程时不合并，切断 ppid 链路
+			if parentJob.ProcessName != nil && ppidStopNames[*parentJob.ProcessName] {
+				continue
+			}
+			// 确保同一 node_id 才合并
 			sameNode := (job.NodeID == nil && parentJob.NodeID == nil) ||
 				(job.NodeID != nil && parentJob.NodeID != nil && *job.NodeID == *parentJob.NodeID)
 			if sameNode {
@@ -322,6 +339,31 @@ func matchCardCount(cardCount *int, cardCounts []int) bool {
 		}
 	}
 	return false
+}
+
+// filterStopNameGroups 过滤掉纯停止词进程的独立组（组内所有进程都是非业务进程）
+func filterStopNameGroups(groups []JobGroup) []JobGroup {
+	filtered := make([]JobGroup, 0, len(groups))
+	for _, group := range groups {
+		hasBusinessJob := false
+		// 检查 MainJob
+		if group.MainJob.ProcessName == nil || !ppidStopNames[*group.MainJob.ProcessName] {
+			hasBusinessJob = true
+		}
+		// 检查 ChildJobs
+		if !hasBusinessJob {
+			for _, child := range group.ChildJobs {
+				if child.ProcessName == nil || !ppidStopNames[*child.ProcessName] {
+					hasBusinessJob = true
+					break
+				}
+			}
+		}
+		if hasBusinessJob {
+			filtered = append(filtered, group)
+		}
+	}
+	return filtered
 }
 
 // filterJobGroupsByCardCounts 根据 cardCount 条件过滤分组
