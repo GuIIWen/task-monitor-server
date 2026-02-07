@@ -67,6 +67,14 @@ func (m *MockJobService) GetDistinctCardCounts() ([]int, error) {
 	return args.Get(0).([]int), args.Error(1)
 }
 
+func (m *MockJobService) GetJobDetail(jobID string) (*service.JobDetailResponse, error) {
+	args := m.Called(jobID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*service.JobDetailResponse), args.Error(1)
+}
+
 func (m *MockJobService) GetJobStats() (map[string]int64, error) {
 	args := m.Called()
 	return args.Get(0).(map[string]int64), args.Error(1)
@@ -160,12 +168,16 @@ func TestJobHandler_GetJobByID(t *testing.T) {
 	handler := NewJobHandler(mockService)
 
 	jobName := "test-job"
-	expectedJob := &model.Job{
-		JobID:   "job-001",
-		JobName: &jobName,
+	expectedDetail := &service.JobDetailResponse{
+		Job: model.Job{
+			JobID:   "job-001",
+			JobName: &jobName,
+		},
+		NPUCards:    []service.NPUCardInfo{},
+		RelatedJobs: []model.Job{},
 	}
 
-	mockService.On("GetJobByID", "job-001").Return(expectedJob, nil)
+	mockService.On("GetJobDetail", "job-001").Return(expectedDetail, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -175,6 +187,14 @@ func TestJobHandler_GetJobByID(t *testing.T) {
 	handler.GetJobByID(c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, float64(200), response["code"])
+	data := response["data"].(map[string]interface{})
+	job := data["job"].(map[string]interface{})
+	assert.Equal(t, "job-001", job["jobId"])
 	mockService.AssertExpectations(t)
 }
 
@@ -184,7 +204,7 @@ func TestJobHandler_GetJobByID_NotFound(t *testing.T) {
 	mockService := new(MockJobService)
 	handler := NewJobHandler(mockService)
 
-	mockService.On("GetJobByID", "non-existent").Return(nil, gorm.ErrRecordNotFound)
+	mockService.On("GetJobDetail", "non-existent").Return(nil, gorm.ErrRecordNotFound)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

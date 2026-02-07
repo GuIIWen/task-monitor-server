@@ -15,6 +15,7 @@ type NodeRepositoryInterface interface {
 type JobRepositoryInterface interface {
 	FindByID(jobID string) (*model.Job, error)
 	FindByNodeID(nodeID string) ([]model.Job, error)
+	FindByNodeIDAndPGID(nodeID string, pgid int64) ([]model.Job, error)
 	FindByStatus(status string) ([]model.Job, error)
 	FindAll() ([]model.Job, error)
 	Find(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, limit, offset int) ([]model.Job, error)
@@ -42,4 +43,8 @@ type MetricsRepositoryInterface interface {
 	FindNPUCardsByPIDs(nodeID string, pids []int64) (map[int64][]int, error)
 	// DistinctNPUCardCounts 查询所有任务组的去重卡数列表
 	DistinctNPUCardCounts() ([]int, error)
+	// FindNPUProcessesByPID 查询单个进程占用的所有 NPU 记录
+	FindNPUProcessesByPID(nodeID string, pid int64) ([]model.NPUProcess, error)
+	// FindLatestNPUMetrics 查询指定卡号的最新 NPU 指标
+	FindLatestNPUMetrics(nodeID string, npuIDs []int) ([]model.NPUMetric, error)
 }

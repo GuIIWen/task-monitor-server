@@ -67,13 +67,12 @@ func (h *JobHandler) GetJobs(c *gin.Context) {
 	})
 }
 
-// GetJobByID 获取作业详情
+// GetJobByID 获取作业详情（含 NPU 卡信息和关联进程）
 func (h *JobHandler) GetJobByID(c *gin.Context) {
 	jobID := c.Param("jobId")
 
-	job, err := h.jobService.GetJobByID(jobID)
+	detail, err := h.jobService.GetJobDetail(jobID)
 	if err != nil {
-		// 区分记录不存在和数据库错误
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			utils.ErrorResponse(c, 404, "Job not found")
 		} else {
@@ -82,7 +81,7 @@ func (h *JobHandler) GetJobByID(c *gin.Context) {
 		return
 	}
 
-	utils.SuccessResponse(c, job)
+	utils.SuccessResponse(c, detail)
 }
 
 // GetJobParameters 获取作业参数

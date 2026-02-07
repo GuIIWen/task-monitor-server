@@ -23,8 +23,34 @@ export interface Job {
   updatedAt: string | null;
 }
 
+export interface NPUMetricInfo {
+  npuId: number | null;
+  name: string | null;
+  health: string | null;
+  powerW: number | null;
+  tempC: number | null;
+  aicoreUsagePercent: number | null;
+  memoryUsageMb: number | null;
+  memoryTotalMb: number | null;
+  hbmUsageMb: number | null;
+  hbmTotalMb: number | null;
+  busId: string | null;
+}
+
+export interface NPUCardInfo {
+  npuId: number;
+  memoryUsageMb: number;
+  metric: NPUMetricInfo | null;
+}
+
+export interface JobDetailResponse {
+  job: Job;
+  npuCards: NPUCardInfo[];
+  relatedJobs: Job[];
+}
+
 export interface JobDetail extends Job {
-  node?: any;  // 临时使用any，后续会引入Node类型
+  node?: any;
   parameters?: any[];
   code?: any[];
   latestMetrics?: any;

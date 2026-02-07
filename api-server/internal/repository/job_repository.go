@@ -33,6 +33,13 @@ func (r *JobRepository) FindByNodeID(nodeID string) ([]model.Job, error) {
 	return jobs, err
 }
 
+// FindByNodeIDAndPGID 根据节点ID和进程组ID查找作业
+func (r *JobRepository) FindByNodeIDAndPGID(nodeID string, pgid int64) ([]model.Job, error) {
+	var jobs []model.Job
+	err := r.db.Where("node_id = ? AND pgid = ?", nodeID, pgid).Find(&jobs).Error
+	return jobs, err
+}
+
 // FindByStatus 根据状态查找作业
 func (r *JobRepository) FindByStatus(status string) ([]model.Job, error) {
 	var jobs []model.Job

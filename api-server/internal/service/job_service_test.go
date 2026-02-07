@@ -37,6 +37,11 @@ func (m *MockJobRepository) FindByNodeID(nodeID string) ([]model.Job, error) {
 	return args.Get(0).([]model.Job), args.Error(1)
 }
 
+func (m *MockJobRepository) FindByNodeIDAndPGID(nodeID string, pgid int64) ([]model.Job, error) {
+	args := m.Called(nodeID, pgid)
+	return args.Get(0).([]model.Job), args.Error(1)
+}
+
 func (m *MockJobRepository) FindByStatus(status string) ([]model.Job, error) {
 	args := m.Called(status)
 	return args.Get(0).([]model.Job), args.Error(1)
@@ -138,6 +143,16 @@ func (m *MockMetricsRepository) FindNPUCardsByPIDs(nodeID string, pids []int64) 
 func (m *MockMetricsRepository) DistinctNPUCardCounts() ([]int, error) {
 	args := m.Called()
 	return args.Get(0).([]int), args.Error(1)
+}
+
+func (m *MockMetricsRepository) FindNPUProcessesByPID(nodeID string, pid int64) ([]model.NPUProcess, error) {
+	args := m.Called(nodeID, pid)
+	return args.Get(0).([]model.NPUProcess), args.Error(1)
+}
+
+func (m *MockMetricsRepository) FindLatestNPUMetrics(nodeID string, npuIDs []int) ([]model.NPUMetric, error) {
+	args := m.Called(nodeID, npuIDs)
+	return args.Get(0).([]model.NPUMetric), args.Error(1)
 }
 
 func (m *MockMetricsRepository) CreateNPUMetric(metric *model.NPUMetric) error {
@@ -673,4 +688,133 @@ func TestJobService_GetGroupedJobs_ChildJobsFilteredByNPU(t *testing.T) {
 	assert.Equal(t, 2, *groups[0].CardCount)
 	mockJobRepo.AssertExpectations(t)
 	mockMetricsRepo.AssertExpectations(t)
+}
+
+func TestJobService_GetJobDetail_WithNPU(t *testing.T) {
+	mockJobRepo := new(MockJobRepository)
+	mockParamRepo := new(MockParameterRepository)
+	mockCodeRepo := new(MockCodeRepository)
+	mockMetricsRepo := new(MockMetricsRepository)
+
+	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
+
+	nodeID := "node-001"
+	pid := int64(100)
+	ppid := int64(1)
+	pgid := int64(100)
+	jobName := "train.py"
+	status := "running"
+	startTime := int64(1770373780000)
+
+	job := &model.Job{
+		JobID:     "job-001",
+		NodeID:    &nodeID,
+		PID:       &pid,
+		PPID:      &ppid,
+		PGID:      &pgid,
+		JobName:   &jobName,
+		Status:    &status,
+		StartTime: &startTime,
+	}
+
+	mockJobRepo.On("FindByID", "job-001").Return(job, nil)
+
+	// NPU processes for this pid
+	npuID0 := 0
+	npuID1 := 1
+	mem0 := float64(1024.5)
+	mem1 := float64(2048.0)
+	npuProcs := []model.NPUProcess{
+		{NodeID: &nodeID, PID: &pid, NPUID: &npuID0, MemoryUsageMB: &mem0},
+		{NodeID: &nodeID, PID: &pid, NPUID: &npuID1, MemoryUsageMB: &mem1},
+	}
+	mockMetricsRepo.On("FindNPUProcessesByPID", nodeID, pid).Return(npuProcs, nil)
+
+	// Latest NPU metrics
+	powerW := float64(150.0)
+	tempC := float64(65.0)
+	metrics := []model.NPUMetric{
+		{NPUID: &npuID0, PowerW: &powerW, TempC: &tempC},
+		{NPUID: &npuID1, PowerW: &powerW, TempC: &tempC},
+	}
+	mockMetricsRepo.On("FindLatestNPUMetrics", nodeID, mock.MatchedBy(func(ids []int) bool {
+		return len(ids) == 2
+	})).Return(metrics, nil)
+
+	// Same pgid jobs for related processes
+	pid2 := int64(101)
+	ppid2 := int64(100)
+	childName := "worker"
+	samePGIDJobs := []model.Job{
+		*job,
+		{JobID: "job-002", NodeID: &nodeID, PID: &pid2, PPID: &ppid2, PGID: &pgid, JobName: &childName, Status: &status, StartTime: &startTime},
+	}
+	mockJobRepo.On("FindByNodeIDAndPGID", nodeID, pgid).Return(samePGIDJobs, nil)
+
+	// NPU cards for related pids
+	npuMap := map[int64][]int{101: {0}}
+	mockMetricsRepo.On("FindNPUCardsByPIDs", nodeID, mock.MatchedBy(func(pids []int64) bool {
+		return len(pids) == 1 && pids[0] == 101
+	})).Return(npuMap, nil)
+
+	detail, err := svc.GetJobDetail("job-001")
+
+	assert.NoError(t, err)
+	assert.NotNil(t, detail)
+	assert.Equal(t, "job-001", detail.Job.JobID)
+	assert.Len(t, detail.NPUCards, 2)
+	assert.Len(t, detail.RelatedJobs, 1)
+	assert.Equal(t, "job-002", detail.RelatedJobs[0].JobID)
+	mockJobRepo.AssertExpectations(t)
+	mockMetricsRepo.AssertExpectations(t)
+}
+
+func TestJobService_GetJobDetail_NoNPU(t *testing.T) {
+	mockJobRepo := new(MockJobRepository)
+	mockParamRepo := new(MockParameterRepository)
+	mockCodeRepo := new(MockCodeRepository)
+	mockMetricsRepo := new(MockMetricsRepository)
+
+	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
+
+	nodeID := "node-001"
+	pid := int64(100)
+	jobName := "simple-job"
+
+	job := &model.Job{
+		JobID:   "job-001",
+		NodeID:  &nodeID,
+		PID:     &pid,
+		JobName: &jobName,
+	}
+
+	mockJobRepo.On("FindByID", "job-001").Return(job, nil)
+	mockMetricsRepo.On("FindNPUProcessesByPID", nodeID, pid).Return([]model.NPUProcess{}, nil)
+
+	detail, err := svc.GetJobDetail("job-001")
+
+	assert.NoError(t, err)
+	assert.NotNil(t, detail)
+	assert.Equal(t, "job-001", detail.Job.JobID)
+	assert.Empty(t, detail.NPUCards)
+	assert.Empty(t, detail.RelatedJobs)
+	mockJobRepo.AssertExpectations(t)
+	mockMetricsRepo.AssertExpectations(t)
+}
+
+func TestJobService_GetJobDetail_NotFound(t *testing.T) {
+	mockJobRepo := new(MockJobRepository)
+	mockParamRepo := new(MockParameterRepository)
+	mockCodeRepo := new(MockCodeRepository)
+	mockMetricsRepo := new(MockMetricsRepository)
+
+	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
+
+	mockJobRepo.On("FindByID", "non-existent").Return(nil, errors.New("record not found"))
+
+	detail, err := svc.GetJobDetail("non-existent")
+
+	assert.Error(t, err)
+	assert.Nil(t, detail)
+	mockJobRepo.AssertExpectations(t)
 }

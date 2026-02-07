@@ -17,9 +17,24 @@ type JobGroup struct {
 	CardCount *int        `json:"cardCount"` // nil 表示 unknown
 }
 
+// NPUCardInfo 进程占用的 NPU 卡信息
+type NPUCardInfo struct {
+	NpuID         int              `json:"npuId"`
+	MemoryUsageMB float64          `json:"memoryUsageMb"`
+	Metric        *model.NPUMetric `json:"metric"`
+}
+
+// JobDetailResponse 作业详情响应
+type JobDetailResponse struct {
+	Job         model.Job   `json:"job"`
+	NPUCards    []NPUCardInfo `json:"npuCards"`
+	RelatedJobs []model.Job   `json:"relatedJobs"`
+}
+
 // JobServiceInterface defines the interface for job service operations
 type JobServiceInterface interface {
 	GetJobByID(jobID string) (*model.Job, error)
+	GetJobDetail(jobID string) (*JobDetailResponse, error)
 	GetJobsByNodeID(nodeID string) ([]model.Job, error)
 	GetJobsByStatus(status string) ([]model.Job, error)
 	GetAllJobs() ([]model.Job, error)

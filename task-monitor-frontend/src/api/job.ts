@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { JobDetail, JobListParams, JobListResponse, JobStats, GroupedJobListResponse } from '@/types/job';
+import type { JobDetailResponse, JobListParams, JobListResponse, JobStats, GroupedJobListResponse } from '@/types/job';
 
 /**
  * 作业相关API
@@ -15,7 +15,7 @@ export const jobApi = {
   /**
    * 获取作业详情
    */
-  getJobById: async (jobId: string): Promise<JobDetail> => {
+  getJobById: async (jobId: string): Promise<JobDetailResponse> => {
     return apiClient.get(`/jobs/${jobId}`);
   },
 
