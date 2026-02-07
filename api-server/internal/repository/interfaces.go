@@ -19,9 +19,8 @@ type JobRepositoryInterface interface {
 	FindAll() ([]model.Job, error)
 	Find(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, limit, offset int) ([]model.Job, error)
 	Count(nodeID string, statuses []string, jobTypes []string, frameworks []string) (int64, error)
-	FindGrouped(nodeID string, statuses []string, jobTypes []string, frameworks []string, cardCounts []int, sortBy, sortOrder string, limit, offset int) ([]model.Job, error)
-	CountGroups(nodeID string, statuses []string, jobTypes []string, frameworks []string, cardCounts []int) (int64, error)
-	DistinctCardCounts() ([]int, error)
+	FindGrouped(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, limit, offset int) ([]model.Job, error)
+	CountGroups(nodeID string, statuses []string, jobTypes []string, frameworks []string) (int64, error)
 }
 
 // ParameterRepositoryInterface defines the interface for parameter repository operations
@@ -39,8 +38,9 @@ type CodeRepositoryInterface interface {
 // MetricsRepositoryInterface defines the interface for metrics repository operations
 // API Server只需要查询功能，不需要写入功能
 type MetricsRepositoryInterface interface {
-	// IsMetricsRepository 是一个标记方法，确保类型安全
-	// 如果需要查询metrics可以添加查询方法，例如：
-	// FindNPUMetricsByJobID(jobID string) ([]model.NPUMetric, error)
 	IsMetricsRepository()
+	// FindNPUCardsByPIDs 根据 node_id 和 pid 列表查询每个 pid 占用的 NPU 卡号
+	FindNPUCardsByPIDs(nodeID string, pids []int64) (map[int64][]int, error)
+	// DistinctNPUCardCounts 查询所有任务组的去重卡数列表
+	DistinctNPUCardCounts() ([]int, error)
 }

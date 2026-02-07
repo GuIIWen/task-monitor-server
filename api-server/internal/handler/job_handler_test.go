@@ -255,11 +255,12 @@ func TestJobHandler_GetGroupedJobs(t *testing.T) {
 
 	nodeID := "node-001"
 	jobName := "VLLM::Worker_TP0"
+	cardCount := 2
 	expectedGroups := []service.JobGroup{
 		{
 			MainJob:   model.Job{JobID: "job-001", NodeID: &nodeID, JobName: &jobName},
 			ChildJobs: []model.Job{},
-			CardCount: 2,
+			CardCount: &cardCount,
 		},
 	}
 

@@ -14,7 +14,7 @@ type NodeServiceInterface interface {
 type JobGroup struct {
 	MainJob   model.Job   `json:"mainJob"`
 	ChildJobs []model.Job `json:"childJobs"`
-	CardCount int         `json:"cardCount"`
+	CardCount *int        `json:"cardCount"` // nil 表示 unknown
 }
 
 // JobServiceInterface defines the interface for job service operations

@@ -119,9 +119,9 @@ func (s *JobService) GetJobStats() (map[string]int64, error) {
 	return stats, nil
 }
 
-// GetDistinctCardCounts 获取所有去重的卡数值
+// GetDistinctCardCounts 获取所有去重的卡数值（基于 npu_processes）
 func (s *JobService) GetDistinctCardCounts() ([]int, error) {
-	return s.jobRepo.DistinctCardCounts()
+	return s.metricsRepo.DistinctNPUCardCounts()
 }
 
 // GetGroupedJobs 按 node_id+pgid 分组查询作业
@@ -133,19 +133,24 @@ func (s *JobService) GetGroupedJobs(nodeID string, statuses []string, jobTypes [
 		pageSize = 20
 	}
 
-	total, err := s.jobRepo.CountGroups(nodeID, statuses, jobTypes, frameworks, cardCounts)
+	total, err := s.jobRepo.CountGroups(nodeID, statuses, jobTypes, frameworks)
 	if err != nil {
 		return nil, 0, fmt.Errorf("count groups: %w", err)
 	}
 
 	offset := (page - 1) * pageSize
-	jobs, err := s.jobRepo.FindGrouped(nodeID, statuses, jobTypes, frameworks, cardCounts, sortBy, sortOrder, pageSize, offset)
+	jobs, err := s.jobRepo.FindGrouped(nodeID, statuses, jobTypes, frameworks, sortBy, sortOrder, pageSize, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("find grouped: %w", err)
 	}
 
 	// 按 node_id+pgid+start_time 组装分组
-	groupMap := make(map[string]*JobGroup)
+	type groupInfo struct {
+		group *JobGroup
+		nid   string
+		pids  []int64
+	}
+	groupMap := make(map[string]*groupInfo)
 	var groupOrder []string
 
 	for i := range jobs {
@@ -165,23 +170,92 @@ func (s *JobService) GetGroupedJobs(nodeID string, statuses []string, jobTypes [
 		key := fmt.Sprintf("%s_%d_%d", nid, pgid, startTime)
 
 		if g, ok := groupMap[key]; ok {
-			g.ChildJobs = append(g.ChildJobs, job)
-			g.CardCount++
+			g.group.ChildJobs = append(g.group.ChildJobs, job)
+			if job.PID != nil {
+				g.pids = append(g.pids, *job.PID)
+			}
 		} else {
-			groupMap[key] = &JobGroup{
-				MainJob:   job,
-				ChildJobs: []model.Job{},
-				CardCount: 1,
+			var pids []int64
+			if job.PID != nil {
+				pids = append(pids, *job.PID)
+			}
+			groupMap[key] = &groupInfo{
+				group: &JobGroup{
+					MainJob:   job,
+					ChildJobs: []model.Job{},
+					CardCount: nil,
+				},
+				nid:  nid,
+				pids: pids,
 			}
 			groupOrder = append(groupOrder, key)
 		}
 	}
 
-	// 按查询顺序组装结果
+	// 按 node_id 聚合所有 pid，批量查询 NPU 卡信息
+	nodeAllPIDs := make(map[string][]int64)
+	for _, key := range groupOrder {
+		info := groupMap[key]
+		nodeAllPIDs[info.nid] = append(nodeAllPIDs[info.nid], info.pids...)
+	}
+
+	// 批量查询每个 node 的 NPU 信息
+	nodeNPUMap := make(map[string]map[int64][]int) // node_id -> pid -> []npu_id
+	for nid, pids := range nodeAllPIDs {
+		if nid == "" || len(pids) == 0 {
+			continue
+		}
+		npuMap, err := s.metricsRepo.FindNPUCardsByPIDs(nid, pids)
+		if err != nil {
+			return nil, 0, fmt.Errorf("find npu cards: %w", err)
+		}
+		nodeNPUMap[nid] = npuMap
+	}
+
+	// 计算每组的卡数
+	for _, key := range groupOrder {
+		info := groupMap[key]
+		npuMap := nodeNPUMap[info.nid]
+		if npuMap == nil {
+			continue
+		}
+		// 收集该组所有 pid 对应的 npu_id，去重
+		npuSet := make(map[int]bool)
+		for _, pid := range info.pids {
+			for _, npuID := range npuMap[pid] {
+				npuSet[npuID] = true
+			}
+		}
+		if len(npuSet) > 0 {
+			count := len(npuSet)
+			info.group.CardCount = &count
+		}
+	}
+
+	// 按查询顺序组装结果（如有 cardCount 筛选则过滤）
 	groups := make([]JobGroup, 0, len(groupOrder))
 	for _, key := range groupOrder {
-		groups = append(groups, *groupMap[key])
+		g := groupMap[key].group
+		if len(cardCounts) > 0 {
+			if !matchCardCount(g.CardCount, cardCounts) {
+				continue
+			}
+		}
+		groups = append(groups, *g)
 	}
 
 	return groups, total, nil
+}
+
+// matchCardCount 检查卡数是否在筛选列表中
+func matchCardCount(cardCount *int, cardCounts []int) bool {
+	for _, c := range cardCounts {
+		if c == 0 && cardCount == nil {
+			return true
+		}
+		if cardCount != nil && *cardCount == c {
+			return true
+		}
+	}
+	return false
 }

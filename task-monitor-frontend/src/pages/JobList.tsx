@@ -22,7 +22,7 @@ const JobList: React.FC = () => {
     const type = searchParams.getAll('type');
     const framework = searchParams.getAll('framework');
     const nodeId = searchParams.get('nodeId') || undefined;
-    const cardCount = searchParams.getAll('cardCount').map(Number).filter(n => !isNaN(n));
+    const cardCount = searchParams.getAll('cardCount').map(v => v === 'unknown' ? v : Number(v)).filter(v => v === 'unknown' || !isNaN(v as number));
 
     return {
       page,
@@ -48,9 +48,12 @@ const JobList: React.FC = () => {
   }));
 
   // 动态生成卡数筛选选项
-  const cardCountFilters = (cardCountsData || [])
-    .sort((a: number, b: number) => a - b)
-    .map((c: number) => ({ text: String(c), value: c }));
+  const cardCountFilters = [
+    { text: 'unknown', value: 'unknown' },
+    ...(cardCountsData || [])
+      .sort((a: number, b: number) => a - b)
+      .map((c: number) => ({ text: String(c), value: c })),
+  ];
   const handleTableChange = (
     pagination: TablePaginationConfig,
     filters: Record<string, FilterValue | null>,
@@ -83,7 +86,7 @@ const JobList: React.FC = () => {
 
     // 卡数筛选（走后端）
     if (filters.cardCount && filters.cardCount.length > 0) {
-      newParams.cardCount = filters.cardCount as number[];
+      newParams.cardCount = filters.cardCount as (number | string)[];
     }
 
     // 更新状态
@@ -209,8 +212,10 @@ const JobList: React.FC = () => {
       filteredValue: params.cardCount || null,
       sorter: true,
       sortOrder: params.sortBy === 'cardCount' ? (params.sortOrder === 'asc' ? 'ascend' : 'descend') : null,
-      render: (count: number) => (
-        <Tag color={count > 1 ? 'orange' : 'default'}>{count}</Tag>
+      render: (count: number | null) => (
+        count === null
+          ? <Tag color="default">unknown</Tag>
+          : <Tag color={count > 1 ? 'orange' : 'default'}>{count}</Tag>
       ),
     },
     {
@@ -282,7 +287,7 @@ const JobList: React.FC = () => {
             size="small"
           />
         ),
-        rowExpandable: (record) => record.cardCount > 1,
+        rowExpandable: (record) => record.cardCount === null || record.cardCount > 1,
       }}
       pagination={{
         total: data?.pagination?.total || 0,

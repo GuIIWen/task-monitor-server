@@ -145,14 +145,11 @@ type groupKey struct {
 }
 
 // CountGroups 统计按 node_id+pgid+start_time 分组后的组数
-func (r *JobRepository) CountGroups(nodeID string, statuses []string, jobTypes []string, frameworks []string, cardCounts []int) (int64, error) {
+func (r *JobRepository) CountGroups(nodeID string, statuses []string, jobTypes []string, frameworks []string) (int64, error) {
 	var total int64
-	subQuery := r.db.Model(&model.Job{}).Select("node_id, pgid, start_time, COUNT(*) AS card_count")
+	subQuery := r.db.Model(&model.Job{}).Select("node_id, pgid, start_time")
 	subQuery = r.applyFilters(subQuery, nodeID, statuses, jobTypes, frameworks)
 	subQuery = subQuery.Group("node_id, pgid, start_time")
-	if len(cardCounts) > 0 {
-		subQuery = subQuery.Having("COUNT(*) IN ?", cardCounts)
-	}
 
 	err := r.db.Table("(?) AS job_groups", subQuery).Count(&total).Error
 	return total, err
@@ -160,16 +157,10 @@ func (r *JobRepository) CountGroups(nodeID string, statuses []string, jobTypes [
 
 // FindGrouped 按 node_id+pgid 分组查询作业
 // 两阶段查询：先查分组列表（带分页），再查各组下的所有作业
-func (r *JobRepository) FindGrouped(nodeID string, statuses []string, jobTypes []string, frameworks []string, cardCounts []int, sortBy, sortOrder string, limit, offset int) ([]model.Job, error) {
+func (r *JobRepository) FindGrouped(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, limit, offset int) ([]model.Job, error) {
 	// 阶段1：查出分页后的分组 (node_id, pgid) 列表
 	orderClause := "MIN(start_time) DESC"
-	if sortBy == "cardCount" {
-		dir := "ASC"
-		if sortOrder == "desc" {
-			dir = "DESC"
-		}
-		orderClause = fmt.Sprintf("COUNT(*) %s", dir)
-	} else if col, ok := allowedSortColumns[sortBy]; ok {
+	if col, ok := allowedSortColumns[sortBy]; ok {
 		dir := "ASC"
 		if sortOrder == "desc" {
 			dir = "DESC"
@@ -180,9 +171,6 @@ func (r *JobRepository) FindGrouped(nodeID string, statuses []string, jobTypes [
 	groupQuery := r.db.Model(&model.Job{}).Select("node_id, pgid, start_time")
 	groupQuery = r.applyFilters(groupQuery, nodeID, statuses, jobTypes, frameworks)
 	groupQuery = groupQuery.Group("node_id, pgid, start_time")
-	if len(cardCounts) > 0 {
-		groupQuery = groupQuery.Having("COUNT(*) IN ?", cardCounts)
-	}
 	groupQuery = groupQuery.Order(orderClause)
 
 	if limit > 0 {
@@ -223,24 +211,3 @@ func (r *JobRepository) FindGrouped(nodeID string, statuses []string, jobTypes [
 	return jobs, nil
 }
 
-// DistinctCardCounts 获取所有去重的卡数值
-func (r *JobRepository) DistinctCardCounts() ([]int, error) {
-	var counts []int
-	err := r.db.Model(&model.Job{}).
-		Select("COUNT(*) AS card_count").
-		Group("node_id, pgid, start_time").
-		Pluck("card_count", &counts).Error
-	if err != nil {
-		return nil, err
-	}
-	// 去重
-	seen := make(map[int]bool)
-	var result []int
-	for _, c := range counts {
-		if !seen[c] {
-			seen[c] = true
-			result = append(result, c)
-		}
-	}
-	return result, nil
-}

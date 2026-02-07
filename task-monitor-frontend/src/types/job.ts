@@ -35,7 +35,7 @@ export interface JobListParams {
   type?: string[];
   framework?: string[];
   nodeId?: string;
-  cardCount?: number[];
+  cardCount?: (number | string)[];
   startTime?: Date;
   endTime?: Date;
   page?: number;
@@ -63,7 +63,7 @@ export interface JobStats {
 export interface JobGroup {
   mainJob: Job;
   childJobs: Job[];
-  cardCount: number;
+  cardCount: number | null;
 }
 
 export interface GroupedJobListResponse {

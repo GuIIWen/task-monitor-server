@@ -120,7 +120,10 @@ func (h *JobHandler) GetGroupedJobs(c *gin.Context) {
 	cardCountStrs := c.QueryArray("cardCount")
 	var cardCounts []int
 	for _, s := range cardCountStrs {
-		if v, err := strconv.Atoi(s); err == nil {
+		if s == "unknown" {
+			// unknown 用 0 表示，service 层会匹配 CardCount == nil
+			cardCounts = append(cardCounts, 0)
+		} else if v, err := strconv.Atoi(s); err == nil {
 			cardCounts = append(cardCounts, v)
 		}
 	}

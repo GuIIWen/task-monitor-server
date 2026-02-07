@@ -57,19 +57,14 @@ func (m *MockJobRepository) Count(nodeID string, statuses []string, jobTypes []s
 	return args.Get(0).(int64), args.Error(1)
 }
 
-func (m *MockJobRepository) FindGrouped(nodeID string, statuses []string, jobTypes []string, frameworks []string, cardCounts []int, sortBy, sortOrder string, limit, offset int) ([]model.Job, error) {
-	args := m.Called(nodeID, statuses, jobTypes, frameworks, cardCounts, sortBy, sortOrder, limit, offset)
+func (m *MockJobRepository) FindGrouped(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, limit, offset int) ([]model.Job, error) {
+	args := m.Called(nodeID, statuses, jobTypes, frameworks, sortBy, sortOrder, limit, offset)
 	return args.Get(0).([]model.Job), args.Error(1)
 }
 
-func (m *MockJobRepository) CountGroups(nodeID string, statuses []string, jobTypes []string, frameworks []string, cardCounts []int) (int64, error) {
-	args := m.Called(nodeID, statuses, jobTypes, frameworks, cardCounts)
+func (m *MockJobRepository) CountGroups(nodeID string, statuses []string, jobTypes []string, frameworks []string) (int64, error) {
+	args := m.Called(nodeID, statuses, jobTypes, frameworks)
 	return args.Get(0).(int64), args.Error(1)
-}
-
-func (m *MockJobRepository) DistinctCardCounts() ([]int, error) {
-	args := m.Called()
-	return args.Get(0).([]int), args.Error(1)
 }
 
 func (m *MockJobRepository) UpdateStatus(jobID, status, reason string) error {
@@ -139,6 +134,16 @@ type MockMetricsRepository struct {
 
 // IsMetricsRepository 实现MetricsRepositoryInterface的标记方法
 func (m *MockMetricsRepository) IsMetricsRepository() {}
+
+func (m *MockMetricsRepository) FindNPUCardsByPIDs(nodeID string, pids []int64) (map[int64][]int, error) {
+	args := m.Called(nodeID, pids)
+	return args.Get(0).(map[int64][]int), args.Error(1)
+}
+
+func (m *MockMetricsRepository) DistinctNPUCardCounts() ([]int, error) {
+	args := m.Called()
+	return args.Get(0).([]int), args.Error(1)
+}
 
 func (m *MockMetricsRepository) CreateNPUMetric(metric *model.NPUMetric) error {
 	args := m.Called(metric)
@@ -333,20 +338,31 @@ func TestJobService_GetGroupedJobs(t *testing.T) {
 	nodeID := "node-001"
 	pgid := int64(1000)
 	startTime := int64(1770373780000)
+	pid1 := int64(100)
+	pid2 := int64(101)
 	jobName1 := "VLLM::Worker_TP0"
 	jobName2 := "VLLM::Worker_TP1"
 	status := "running"
 
 	returnedJobs := []model.Job{
-		{JobID: "job-001", NodeID: &nodeID, PGID: &pgid, StartTime: &startTime, JobName: &jobName1, Status: &status},
-		{JobID: "job-002", NodeID: &nodeID, PGID: &pgid, StartTime: &startTime, JobName: &jobName2, Status: &status},
+		{JobID: "job-001", NodeID: &nodeID, PGID: &pgid, PID: &pid1, StartTime: &startTime, JobName: &jobName1, Status: &status},
+		{JobID: "job-002", NodeID: &nodeID, PGID: &pgid, PID: &pid2, StartTime: &startTime, JobName: &jobName2, Status: &status},
 	}
 
 	var statuses, jobTypes, frameworks []string
 	var cardCounts []int
 
-	mockJobRepo.On("CountGroups", "", statuses, jobTypes, frameworks, cardCounts).Return(int64(5), nil)
-	mockJobRepo.On("FindGrouped", "", statuses, jobTypes, frameworks, cardCounts, "", "", 20, 0).Return(returnedJobs, nil)
+	mockJobRepo.On("CountGroups", "", statuses, jobTypes, frameworks).Return(int64(5), nil)
+	mockJobRepo.On("FindGrouped", "", statuses, jobTypes, frameworks, "", "", 20, 0).Return(returnedJobs, nil)
+
+	// 两个进程都在 npu_id=0 上，去重后卡数=1
+	npuMap := map[int64][]int{
+		100: {0},
+		101: {0},
+	}
+	mockMetricsRepo.On("FindNPUCardsByPIDs", "node-001", mock.MatchedBy(func(pids []int64) bool {
+		return len(pids) == 2
+	})).Return(npuMap, nil)
 
 	groups, total, err := svc.GetGroupedJobs("", statuses, jobTypes, frameworks, cardCounts, "", "", 1, 20)
 
@@ -356,8 +372,10 @@ func TestJobService_GetGroupedJobs(t *testing.T) {
 	assert.Equal(t, "job-001", groups[0].MainJob.JobID)
 	assert.Len(t, groups[0].ChildJobs, 1)
 	assert.Equal(t, "job-002", groups[0].ChildJobs[0].JobID)
-	assert.Equal(t, 2, groups[0].CardCount)
+	assert.NotNil(t, groups[0].CardCount)
+	assert.Equal(t, 1, *groups[0].CardCount)
 	mockJobRepo.AssertExpectations(t)
+	mockMetricsRepo.AssertExpectations(t)
 }
 
 func TestJobService_GetGroupedJobs_MultipleGroups(t *testing.T) {
@@ -371,6 +389,8 @@ func TestJobService_GetGroupedJobs_MultipleGroups(t *testing.T) {
 	nodeID := "node-001"
 	pgid1 := int64(1000)
 	pgid2 := int64(2000)
+	pid1 := int64(100)
+	pid2 := int64(200)
 	startTime1 := int64(1770373780000)
 	startTime2 := int64(1770373790000)
 	jobName1 := "train.py"
@@ -378,26 +398,33 @@ func TestJobService_GetGroupedJobs_MultipleGroups(t *testing.T) {
 	status := "running"
 
 	returnedJobs := []model.Job{
-		{JobID: "job-001", NodeID: &nodeID, PGID: &pgid1, StartTime: &startTime1, JobName: &jobName1, Status: &status},
-		{JobID: "job-002", NodeID: &nodeID, PGID: &pgid2, StartTime: &startTime2, JobName: &jobName2, Status: &status},
+		{JobID: "job-001", NodeID: &nodeID, PGID: &pgid1, PID: &pid1, StartTime: &startTime1, JobName: &jobName1, Status: &status},
+		{JobID: "job-002", NodeID: &nodeID, PGID: &pgid2, PID: &pid2, StartTime: &startTime2, JobName: &jobName2, Status: &status},
 	}
 
 	var statuses, jobTypes, frameworks []string
 	var cardCounts []int
 
-	mockJobRepo.On("CountGroups", "", statuses, jobTypes, frameworks, cardCounts).Return(int64(2), nil)
-	mockJobRepo.On("FindGrouped", "", statuses, jobTypes, frameworks, cardCounts, "", "", 20, 0).Return(returnedJobs, nil)
+	mockJobRepo.On("CountGroups", "", statuses, jobTypes, frameworks).Return(int64(2), nil)
+	mockJobRepo.On("FindGrouped", "", statuses, jobTypes, frameworks, "", "", 20, 0).Return(returnedJobs, nil)
+
+	// 没有 NPU 记录，返回空 map
+	npuMap := map[int64][]int{}
+	mockMetricsRepo.On("FindNPUCardsByPIDs", "node-001", mock.MatchedBy(func(pids []int64) bool {
+		return len(pids) == 2
+	})).Return(npuMap, nil)
 
 	groups, total, err := svc.GetGroupedJobs("", statuses, jobTypes, frameworks, cardCounts, "", "", 1, 20)
 
 	assert.NoError(t, err)
 	assert.Equal(t, int64(2), total)
 	assert.Len(t, groups, 2)
-	assert.Equal(t, 1, groups[0].CardCount)
-	assert.Equal(t, 1, groups[1].CardCount)
+	assert.Nil(t, groups[0].CardCount)
+	assert.Nil(t, groups[1].CardCount)
 	assert.Empty(t, groups[0].ChildJobs)
 	assert.Empty(t, groups[1].ChildJobs)
 	mockJobRepo.AssertExpectations(t)
+	mockMetricsRepo.AssertExpectations(t)
 }
 
 func TestJobService_GetDistinctCardCounts(t *testing.T) {
@@ -408,11 +435,11 @@ func TestJobService_GetDistinctCardCounts(t *testing.T) {
 
 	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
 
-	mockJobRepo.On("DistinctCardCounts").Return([]int{1, 2, 4, 8}, nil)
+	mockMetricsRepo.On("DistinctNPUCardCounts").Return([]int{1, 2, 4, 8}, nil)
 
 	counts, err := svc.GetDistinctCardCounts()
 
 	assert.NoError(t, err)
 	assert.Equal(t, []int{1, 2, 4, 8}, counts)
-	mockJobRepo.AssertExpectations(t)
+	mockMetricsRepo.AssertExpectations(t)
 }
