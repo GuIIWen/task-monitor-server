@@ -31,6 +31,51 @@ type JobDetailResponse struct {
 	RelatedJobs []model.Job   `json:"relatedJobs"`
 }
 
+// JobAnalysisTaskType 作业类型分析
+type JobAnalysisTaskType struct {
+	Category           string  `json:"category"`
+	SubCategory        *string `json:"subCategory"`
+	InferenceFramework *string `json:"inferenceFramework"`
+}
+
+// JobAnalysisModelInfo 模型信息分析
+type JobAnalysisModelInfo struct {
+	ModelName        *string `json:"modelName"`
+	ModelSize        *string `json:"modelSize"`
+	Precision        *string `json:"precision"`
+	ParallelStrategy *string `json:"parallelStrategy"`
+}
+
+// JobAnalysisResourceAssessment 资源评估
+type JobAnalysisResourceAssessment struct {
+	NpuUtilization string `json:"npuUtilization"`
+	HbmUtilization string `json:"hbmUtilization"`
+	Description    string `json:"description"`
+}
+
+// JobAnalysisIssue 问题项
+type JobAnalysisIssue struct {
+	Severity    string `json:"severity"`
+	Category    string `json:"category"`
+	Description string `json:"description"`
+	Suggestion  string `json:"suggestion"`
+}
+
+// JobAnalysisResponse LLM分析结果
+type JobAnalysisResponse struct {
+	Summary            string                        `json:"summary"`
+	TaskType           JobAnalysisTaskType            `json:"taskType"`
+	ModelInfo          *JobAnalysisModelInfo           `json:"modelInfo"`
+	ResourceAssessment JobAnalysisResourceAssessment   `json:"resourceAssessment"`
+	Issues             []JobAnalysisIssue             `json:"issues"`
+	Suggestions        []string                       `json:"suggestions"`
+}
+
+// LLMServiceInterface LLM服务接口
+type LLMServiceInterface interface {
+	AnalyzeJob(jobID string) (*JobAnalysisResponse, error)
+}
+
 // JobServiceInterface defines the interface for job service operations
 type JobServiceInterface interface {
 	GetJobByID(jobID string) (*model.Job, error)

@@ -121,6 +121,13 @@ database:
   database: task_monitor
   max_idle_conns: 10
   max_open_conns: 100
+
+llm:
+  enabled: false                          # 是否启用LLM分析功能
+  endpoint: "http://localhost:8000/v1"    # OpenAI兼容接口地址
+  api_key: ""                             # API Key
+  model: "qwen2.5"                        # 模型名称
+  timeout: 60                             # 超时秒数
 ```
 
 ## API接口
@@ -143,6 +150,10 @@ API Server提供以下RESTful接口：
 - `GET /api/v1/jobs/:jobId` - 获取作业详情
 - `GET /api/v1/jobs/:jobId/parameters` - 获取作业参数
 - `GET /api/v1/jobs/:jobId/code` - 获取作业代码
+- `POST /api/v1/jobs/:jobId/analyze` - AI智能分析作业
+  - 聚合作业基本信息、NPU资源、脚本代码、参数配置、环境变量，调用LLM进行综合分析
+  - 返回结构化结果：作业概要、类型判断、模型信息、资源评估、问题诊断、优化建议
+  - 需要在配置文件中启用LLM服务
 
 ### 健康检查
 - `GET /health` - 健康检查接口

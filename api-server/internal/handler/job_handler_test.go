@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -84,7 +85,7 @@ func TestJobHandler_GetJobs_ByNodeID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mockService := new(MockJobService)
-	handler := NewJobHandler(mockService)
+	handler := NewJobHandler(mockService, nil)
 
 	nodeID := "node-001"
 	jobName := "test-job"
@@ -120,7 +121,7 @@ func TestJobHandler_GetJobs_ByStatus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mockService := new(MockJobService)
-	handler := NewJobHandler(mockService)
+	handler := NewJobHandler(mockService, nil)
 
 	status := "running"
 	expectedJobs := []model.Job{
@@ -145,7 +146,7 @@ func TestJobHandler_GetJobs_NoParams(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mockService := new(MockJobService)
-	handler := NewJobHandler(mockService)
+	handler := NewJobHandler(mockService, nil)
 
 	expectedJobs := []model.Job{}
 	var statuses2, jobTypes2, frameworks2 []string
@@ -165,7 +166,7 @@ func TestJobHandler_GetJobByID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mockService := new(MockJobService)
-	handler := NewJobHandler(mockService)
+	handler := NewJobHandler(mockService, nil)
 
 	jobName := "test-job"
 	expectedDetail := &service.JobDetailResponse{
@@ -202,7 +203,7 @@ func TestJobHandler_GetJobByID_NotFound(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mockService := new(MockJobService)
-	handler := NewJobHandler(mockService)
+	handler := NewJobHandler(mockService, nil)
 
 	mockService.On("GetJobDetail", "non-existent").Return(nil, gorm.ErrRecordNotFound)
 
@@ -221,7 +222,7 @@ func TestJobHandler_GetJobParameters(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mockService := new(MockJobService)
-	handler := NewJobHandler(mockService)
+	handler := NewJobHandler(mockService, nil)
 
 	jobID := "job-001"
 	paramRaw := "learning_rate=0.001"
@@ -246,7 +247,7 @@ func TestJobHandler_GetJobCode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mockService := new(MockJobService)
-	handler := NewJobHandler(mockService)
+	handler := NewJobHandler(mockService, nil)
 
 	jobID := "job-001"
 	scriptPath := "/path/to/script.py"
@@ -271,7 +272,7 @@ func TestJobHandler_GetGroupedJobs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mockService := new(MockJobService)
-	handler := NewJobHandler(mockService)
+	handler := NewJobHandler(mockService, nil)
 
 	nodeID := "node-001"
 	jobName := "VLLM::Worker_TP0"
@@ -311,7 +312,7 @@ func TestJobHandler_GetGroupedJobs_WithCardCountFilter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mockService := new(MockJobService)
-	handler := NewJobHandler(mockService)
+	handler := NewJobHandler(mockService, nil)
 
 	expectedGroups := []service.JobGroup{}
 
@@ -334,7 +335,7 @@ func TestJobHandler_GetDistinctCardCounts(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	mockService := new(MockJobService)
-	handler := NewJobHandler(mockService)
+	handler := NewJobHandler(mockService, nil)
 
 	mockService.On("GetDistinctCardCounts").Return([]int{1, 2, 4, 8, 16}, nil)
 
@@ -353,4 +354,92 @@ func TestJobHandler_GetDistinctCardCounts(t *testing.T) {
 	data := response["data"].([]interface{})
 	assert.Len(t, data, 5)
 	mockService.AssertExpectations(t)
+}
+
+// MockLLMService is a mock implementation of LLMServiceInterface
+type MockLLMService struct {
+	mock.Mock
+}
+
+func (m *MockLLMService) AnalyzeJob(jobID string) (*service.JobAnalysisResponse, error) {
+	args := m.Called(jobID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*service.JobAnalysisResponse), args.Error(1)
+}
+
+func TestJobHandler_AnalyzeJob_Success(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockJobService := new(MockJobService)
+	mockLLMService := new(MockLLMService)
+	handler := NewJobHandler(mockJobService, mockLLMService)
+
+	expectedResult := &service.JobAnalysisResponse{
+		Summary: "这是一个vLLM推理作业",
+		TaskType: service.JobAnalysisTaskType{
+			Category: "inference",
+		},
+		ResourceAssessment: service.JobAnalysisResourceAssessment{
+			NpuUtilization: "high",
+			HbmUtilization: "high",
+			Description:    "资源利用率良好",
+		},
+		Issues:      []service.JobAnalysisIssue{},
+		Suggestions: []string{"建议监控长期运行稳定性"},
+	}
+
+	mockLLMService.On("AnalyzeJob", "job-001").Return(expectedResult, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "jobId", Value: "job-001"}}
+	c.Request = httptest.NewRequest("POST", "/api/v1/jobs/job-001/analyze", nil)
+
+	handler.AnalyzeJob(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, float64(200), response["code"])
+	mockLLMService.AssertExpectations(t)
+}
+
+func TestJobHandler_AnalyzeJob_LLMNotConfigured(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockJobService := new(MockJobService)
+	handler := NewJobHandler(mockJobService, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "jobId", Value: "job-001"}}
+	c.Request = httptest.NewRequest("POST", "/api/v1/jobs/job-001/analyze", nil)
+
+	handler.AnalyzeJob(c)
+
+	assert.Equal(t, 501, w.Code)
+}
+
+func TestJobHandler_AnalyzeJob_Error(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockJobService := new(MockJobService)
+	mockLLMService := new(MockLLMService)
+	handler := NewJobHandler(mockJobService, mockLLMService)
+
+	mockLLMService.On("AnalyzeJob", "job-001").Return(nil, errors.New("LLM service error"))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "jobId", Value: "job-001"}}
+	c.Request = httptest.NewRequest("POST", "/api/v1/jobs/job-001/analyze", nil)
+
+	handler.AnalyzeJob(c)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	mockLLMService.AssertExpectations(t)
 }

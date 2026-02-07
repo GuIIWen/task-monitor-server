@@ -13,12 +13,14 @@ import (
 // JobHandler 作业处理器
 type JobHandler struct {
 	jobService service.JobServiceInterface
+	llmService service.LLMServiceInterface
 }
 
 // NewJobHandler 创建作业处理器
-func NewJobHandler(jobService service.JobServiceInterface) *JobHandler {
+func NewJobHandler(jobService service.JobServiceInterface, llmService service.LLMServiceInterface) *JobHandler {
 	return &JobHandler{
 		jobService: jobService,
+		llmService: llmService,
 	}
 }
 
@@ -182,4 +184,22 @@ func (h *JobHandler) GetJobStats(c *gin.Context) {
 	}
 
 	utils.SuccessResponse(c, stats)
+}
+
+// AnalyzeJob AI分析作业
+func (h *JobHandler) AnalyzeJob(c *gin.Context) {
+	if h.llmService == nil {
+		utils.ErrorResponse(c, 501, "LLM service is not configured")
+		return
+	}
+
+	jobID := c.Param("jobId")
+
+	result, err := h.llmService.AnalyzeJob(jobID)
+	if err != nil {
+		utils.ErrorResponse(c, 500, "AI analysis failed: "+err.Error())
+		return
+	}
+
+	utils.SuccessResponse(c, result)
 }

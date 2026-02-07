@@ -104,6 +104,41 @@ export interface JobGroup {
   cardCount: number | null;
 }
 
+export interface JobAnalysisTaskType {
+  category: 'training' | 'inference' | 'unknown';
+  subCategory: 'pre-training' | 'fine-tuning' | 'rlhf' | 'evaluation' | 'serving' | 'batch-inference' | null;
+  inferenceFramework: string | null;
+}
+
+export interface JobAnalysisModelInfo {
+  modelName: string | null;
+  modelSize: string | null;
+  precision: string | null;
+  parallelStrategy: string | null;
+}
+
+export interface JobAnalysisResourceAssessment {
+  npuUtilization: 'high' | 'medium' | 'low' | 'idle';
+  hbmUtilization: 'high' | 'medium' | 'low';
+  description: string;
+}
+
+export interface JobAnalysisIssue {
+  severity: 'critical' | 'warning' | 'info';
+  category: string;
+  description: string;
+  suggestion: string;
+}
+
+export interface JobAnalysis {
+  summary: string;
+  taskType: JobAnalysisTaskType;
+  modelInfo: JobAnalysisModelInfo | null;
+  resourceAssessment: JobAnalysisResourceAssessment;
+  issues: JobAnalysisIssue[];
+  suggestions: string[];
+}
+
 export interface GroupedJobListResponse {
   items: JobGroup[];
   pagination: {

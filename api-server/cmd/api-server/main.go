@@ -49,9 +49,16 @@ func main() {
 	nodeService := service.NewNodeService(nodeRepo)
 	jobService := service.NewJobService(jobRepo, paramRepo, codeRepo, metricsRepo)
 
+	// 初始化LLM Service
+	var llmService service.LLMServiceInterface
+	if cfg.LLM.Enabled {
+		llmService = service.NewLLMService(jobService, cfg.LLM)
+		log.Println("LLM service enabled")
+	}
+
 	// 初始化Handler
 	nodeHandler := handler.NewNodeHandler(nodeService)
-	jobHandler := handler.NewJobHandler(jobService)
+	jobHandler := handler.NewJobHandler(jobService, llmService)
 
 	// 设置Gin模式
 	gin.SetMode(cfg.Server.Mode)
@@ -87,6 +94,7 @@ func main() {
 			jobs.GET("/:jobId", jobHandler.GetJobByID)
 			jobs.GET("/:jobId/parameters", jobHandler.GetJobParameters)
 			jobs.GET("/:jobId/code", jobHandler.GetJobCode)
+			jobs.POST("/:jobId/analyze", jobHandler.AnalyzeJob)
 		}
 	}
 

@@ -1,13 +1,13 @@
 import React, { useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Descriptions, Button, Space, Tag, Modal, Table, Progress, Typography, Spin } from 'antd';
+import { Card, Descriptions, Button, Space, Tag, Modal, Table, Progress, Typography, Spin, Alert, List, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ArrowLeftOutlined, CodeOutlined, DownOutlined, RightOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, CodeOutlined, DownOutlined, RightOutlined, RobotOutlined } from '@ant-design/icons';
 import { StatusBadge, LoadingSpinner } from '@/components/Common';
 import { useJob, useJobCode, useJobParameters } from '@/hooks';
 import { jobApi } from '@/api';
 import { formatTimestamp, JOB_TYPE_MAP } from '@/utils';
-import type { Job, NPUCardInfo, JobDetailResponse } from '@/types/job';
+import type { Job, NPUCardInfo, JobDetailResponse, JobAnalysis } from '@/types/job';
 
 const JobDetail: React.FC = () => {
   const { jobId } = useParams<{ jobId: string }>();
@@ -20,6 +20,8 @@ const JobDetail: React.FC = () => {
   const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>([]);
   const [childDetailMap, setChildDetailMap] = useState<Record<string, JobDetailResponse>>({});
   const [childLoadingMap, setChildLoadingMap] = useState<Record<string, boolean>>({});
+  const [analysisData, setAnalysisData] = useState<JobAnalysis | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
 
   const handleExpand = useCallback(async (expanded: boolean, record: Job) => {
     const key = record.jobId;
@@ -39,6 +41,19 @@ const JobDetail: React.FC = () => {
       setChildLoadingMap(prev => ({ ...prev, [key]: false }));
     }
   }, [childDetailMap]);
+
+  const handleAnalyze = useCallback(async () => {
+    if (!jobId) return;
+    setAnalysisLoading(true);
+    try {
+      const data = await jobApi.analyzeJob(jobId);
+      setAnalysisData(data);
+    } catch (e: any) {
+      message.error(e?.message || 'AI 分析失败');
+    } finally {
+      setAnalysisLoading(false);
+    }
+  }, [jobId]);
 
   if (isLoading) {
     return <LoadingSpinner />;
@@ -347,6 +362,126 @@ const JobDetail: React.FC = () => {
           />
         </Card>
       )}
+
+      <Card
+        title={<Space><RobotOutlined />AI 智能分析</Space>}
+        extra={
+          <Button
+            type="primary"
+            icon={<RobotOutlined />}
+            loading={analysisLoading}
+            onClick={handleAnalyze}
+          >
+            {analysisData ? '重新分析' : '开始分析'}
+          </Button>
+        }
+      >
+        {analysisLoading && (
+          <div style={{ textAlign: 'center', padding: 40 }}>
+            <Spin size="large" />
+            <div style={{ marginTop: 16 }}>
+              <Typography.Text type="secondary">正在分析作业信息，请稍候...</Typography.Text>
+            </div>
+          </div>
+        )}
+        {!analysisLoading && !analysisData && (
+          <Typography.Text type="secondary">
+            点击"开始分析"按钮，AI 将综合分析作业的基本信息、NPU 资源、脚本代码、参数配置和环境变量。
+          </Typography.Text>
+        )}
+        {!analysisLoading && analysisData && (
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            <div>
+              <Typography.Title level={5} style={{ marginBottom: 8 }}>作业概要</Typography.Title>
+              <Typography.Paragraph>{analysisData.summary}</Typography.Paragraph>
+            </div>
+
+            <div>
+              <Typography.Title level={5} style={{ marginBottom: 8 }}>作业类型</Typography.Title>
+              <Space wrap>
+                <Tag color="blue">
+                  {analysisData.taskType.category === 'training' ? '训练' : analysisData.taskType.category === 'inference' ? '推理' : '未知'}
+                </Tag>
+                {analysisData.taskType.subCategory && (
+                  <Tag color="cyan">{analysisData.taskType.subCategory}</Tag>
+                )}
+                {analysisData.taskType.inferenceFramework && (
+                  <Tag color="purple">{analysisData.taskType.inferenceFramework}</Tag>
+                )}
+              </Space>
+            </div>
+
+            {analysisData.modelInfo && (
+              <div>
+                <Typography.Title level={5} style={{ marginBottom: 8 }}>模型信息</Typography.Title>
+                <Descriptions bordered size="small" column={2}>
+                  <Descriptions.Item label="模型名称">{analysisData.modelInfo.modelName || '-'}</Descriptions.Item>
+                  <Descriptions.Item label="模型大小">{analysisData.modelInfo.modelSize || '-'}</Descriptions.Item>
+                  <Descriptions.Item label="精度">{analysisData.modelInfo.precision || '-'}</Descriptions.Item>
+                  <Descriptions.Item label="并行策略">{analysisData.modelInfo.parallelStrategy || '-'}</Descriptions.Item>
+                </Descriptions>
+              </div>
+            )}
+
+            <div>
+              <Typography.Title level={5} style={{ marginBottom: 8 }}>资源评估</Typography.Title>
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                <Space>
+                  <Typography.Text>NPU 利用率：</Typography.Text>
+                  <Tag color={
+                    analysisData.resourceAssessment.npuUtilization === 'high' ? 'green' :
+                    analysisData.resourceAssessment.npuUtilization === 'medium' ? 'orange' :
+                    analysisData.resourceAssessment.npuUtilization === 'low' ? 'red' : 'default'
+                  }>
+                    {analysisData.resourceAssessment.npuUtilization}
+                  </Tag>
+                  <Typography.Text>HBM 利用率：</Typography.Text>
+                  <Tag color={
+                    analysisData.resourceAssessment.hbmUtilization === 'high' ? 'green' :
+                    analysisData.resourceAssessment.hbmUtilization === 'medium' ? 'orange' : 'red'
+                  }>
+                    {analysisData.resourceAssessment.hbmUtilization}
+                  </Tag>
+                </Space>
+                <Typography.Text type="secondary">{analysisData.resourceAssessment.description}</Typography.Text>
+              </Space>
+            </div>
+
+            {analysisData.issues.length > 0 && (
+              <div>
+                <Typography.Title level={5} style={{ marginBottom: 8 }}>问题诊断</Typography.Title>
+                <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                  {analysisData.issues.map((issue, idx) => (
+                    <Alert
+                      key={idx}
+                      type={issue.severity === 'critical' ? 'error' : issue.severity === 'warning' ? 'warning' : 'info'}
+                      showIcon
+                      message={<span><Tag size="small">{issue.category}</Tag>{issue.description}</span>}
+                      description={<span>建议：{issue.suggestion}</span>}
+                    />
+                  ))}
+                </Space>
+              </div>
+            )}
+
+            {analysisData.suggestions.length > 0 && (
+              <div>
+                <Typography.Title level={5} style={{ marginBottom: 8 }}>优化建议</Typography.Title>
+                <List
+                  size="small"
+                  bordered
+                  dataSource={analysisData.suggestions}
+                  renderItem={(item, idx) => (
+                    <List.Item>
+                      <Typography.Text>{idx + 1}. {item}</Typography.Text>
+                    </List.Item>
+                  )}
+                />
+              </div>
+            )}
+          </Space>
+        )}
+      </Card>
 
       {codeList && codeList.length > 0 && (
         <Modal

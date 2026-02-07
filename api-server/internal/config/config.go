@@ -13,6 +13,16 @@ type Config struct {
 	Database DatabaseConfig `yaml:"database"`
 	Redis    RedisConfig    `yaml:"redis"`
 	Log      LogConfig      `yaml:"log"`
+	LLM      LLMConfig      `yaml:"llm"`
+}
+
+// LLMConfig LLM服务配置
+type LLMConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	Endpoint string `yaml:"endpoint"`  // OpenAI 兼容接口地址
+	APIKey   string `yaml:"api_key"`
+	Model    string `yaml:"model"`     // 模型名称
+	Timeout  int    `yaml:"timeout"`   // 超时秒数，默认60
 }
 
 // ServerConfig 服务器配置

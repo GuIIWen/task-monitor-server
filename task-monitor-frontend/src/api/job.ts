@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { JobDetailResponse, JobListParams, JobListResponse, JobStats, GroupedJobListResponse, Parameter } from '@/types/job';
+import type { JobDetailResponse, JobListParams, JobListResponse, JobStats, GroupedJobListResponse, Parameter, JobAnalysis } from '@/types/job';
 
 /**
  * 作业相关API
@@ -52,5 +52,12 @@ export const jobApi = {
    */
   getDistinctCardCounts: async (): Promise<number[]> => {
     return apiClient.get('/jobs/grouped/card-counts');
+  },
+
+  /**
+   * AI分析作业
+   */
+  analyzeJob: async (jobId: string): Promise<JobAnalysis> => {
+    return apiClient.post(`/jobs/${jobId}/analyze`);
   },
 };
