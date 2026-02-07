@@ -139,16 +139,17 @@ func (r *JobRepository) applyFilters(query *gorm.DB, nodeID string, statuses []s
 
 // groupKey 分组键
 type groupKey struct {
-	NodeID string `gorm:"column:node_id"`
-	PGID   int64  `gorm:"column:pgid"`
+	NodeID    string `gorm:"column:node_id"`
+	PGID      int64  `gorm:"column:pgid"`
+	StartTime int64  `gorm:"column:start_time"`
 }
 
-// CountGroups 统计按 node_id+pgid 分组后的组数
+// CountGroups 统计按 node_id+pgid+start_time 分组后的组数
 func (r *JobRepository) CountGroups(nodeID string, statuses []string, jobTypes []string, frameworks []string, cardCounts []int) (int64, error) {
 	var total int64
-	subQuery := r.db.Model(&model.Job{}).Select("node_id, pgid, COUNT(*) AS card_count")
+	subQuery := r.db.Model(&model.Job{}).Select("node_id, pgid, start_time, COUNT(*) AS card_count")
 	subQuery = r.applyFilters(subQuery, nodeID, statuses, jobTypes, frameworks)
-	subQuery = subQuery.Group("node_id, pgid")
+	subQuery = subQuery.Group("node_id, pgid, start_time")
 	if len(cardCounts) > 0 {
 		subQuery = subQuery.Having("COUNT(*) IN ?", cardCounts)
 	}
@@ -176,9 +177,9 @@ func (r *JobRepository) FindGrouped(nodeID string, statuses []string, jobTypes [
 		orderClause = fmt.Sprintf("MIN(%s) %s", col, dir)
 	}
 
-	groupQuery := r.db.Model(&model.Job{}).Select("node_id, pgid")
+	groupQuery := r.db.Model(&model.Job{}).Select("node_id, pgid, start_time")
 	groupQuery = r.applyFilters(groupQuery, nodeID, statuses, jobTypes, frameworks)
-	groupQuery = groupQuery.Group("node_id, pgid")
+	groupQuery = groupQuery.Group("node_id, pgid, start_time")
 	if len(cardCounts) > 0 {
 		groupQuery = groupQuery.Having("COUNT(*) IN ?", cardCounts)
 	}
@@ -205,14 +206,14 @@ func (r *JobRepository) FindGrouped(nodeID string, statuses []string, jobTypes [
 	orConditions := r.db.Session(&gorm.Session{})
 	for i, g := range groups {
 		if i == 0 {
-			orConditions = orConditions.Where("(node_id = ? AND pgid = ?)", g.NodeID, g.PGID)
+			orConditions = orConditions.Where("(node_id = ? AND pgid = ? AND start_time = ?)", g.NodeID, g.PGID, g.StartTime)
 		} else {
-			orConditions = orConditions.Or("(node_id = ? AND pgid = ?)", g.NodeID, g.PGID)
+			orConditions = orConditions.Or("(node_id = ? AND pgid = ? AND start_time = ?)", g.NodeID, g.PGID, g.StartTime)
 		}
 	}
 	query = query.Where(orConditions)
 	query = r.applyFilters(query, nodeID, statuses, jobTypes, frameworks)
-	query = query.Order("node_id, pgid, pid ASC")
+	query = query.Order("node_id, pgid, start_time, pid ASC")
 
 	var jobs []model.Job
 	if err := query.Find(&jobs).Error; err != nil {
@@ -220,4 +221,26 @@ func (r *JobRepository) FindGrouped(nodeID string, statuses []string, jobTypes [
 	}
 
 	return jobs, nil
+}
+
+// DistinctCardCounts 获取所有去重的卡数值
+func (r *JobRepository) DistinctCardCounts() ([]int, error) {
+	var counts []int
+	err := r.db.Model(&model.Job{}).
+		Select("COUNT(*) AS card_count").
+		Group("node_id, pgid, start_time").
+		Pluck("card_count", &counts).Error
+	if err != nil {
+		return nil, err
+	}
+	// 去重
+	seen := make(map[int]bool)
+	var result []int
+	for _, c := range counts {
+		if !seen[c] {
+			seen[c] = true
+			result = append(result, c)
+		}
+	}
+	return result, nil
 }

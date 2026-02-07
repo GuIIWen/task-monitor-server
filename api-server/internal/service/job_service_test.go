@@ -47,14 +47,29 @@ func (m *MockJobRepository) FindAll() ([]model.Job, error) {
 	return args.Get(0).([]model.Job), args.Error(1)
 }
 
-func (m *MockJobRepository) Find(nodeID, status string, limit, offset int) ([]model.Job, error) {
-	args := m.Called(nodeID, status, limit, offset)
+func (m *MockJobRepository) Find(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, limit, offset int) ([]model.Job, error) {
+	args := m.Called(nodeID, statuses, jobTypes, frameworks, sortBy, sortOrder, limit, offset)
 	return args.Get(0).([]model.Job), args.Error(1)
 }
 
-func (m *MockJobRepository) Count(nodeID, status string) (int64, error) {
-	args := m.Called(nodeID, status)
+func (m *MockJobRepository) Count(nodeID string, statuses []string, jobTypes []string, frameworks []string) (int64, error) {
+	args := m.Called(nodeID, statuses, jobTypes, frameworks)
 	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockJobRepository) FindGrouped(nodeID string, statuses []string, jobTypes []string, frameworks []string, cardCounts []int, sortBy, sortOrder string, limit, offset int) ([]model.Job, error) {
+	args := m.Called(nodeID, statuses, jobTypes, frameworks, cardCounts, sortBy, sortOrder, limit, offset)
+	return args.Get(0).([]model.Job), args.Error(1)
+}
+
+func (m *MockJobRepository) CountGroups(nodeID string, statuses []string, jobTypes []string, frameworks []string, cardCounts []int) (int64, error) {
+	args := m.Called(nodeID, statuses, jobTypes, frameworks, cardCounts)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockJobRepository) DistinctCardCounts() ([]int, error) {
+	args := m.Called()
+	return args.Get(0).([]int), args.Error(1)
 }
 
 func (m *MockJobRepository) UpdateStatus(jobID, status, reason string) error {
@@ -283,7 +298,7 @@ func TestJobService_GetJobs(t *testing.T) {
 	mockCodeRepo := new(MockCodeRepository)
 	mockMetricsRepo := new(MockMetricsRepository)
 
-	service := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
+	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
 
 	nodeID := "node-001"
 	status := "running"
@@ -292,14 +307,112 @@ func TestJobService_GetJobs(t *testing.T) {
 		{JobID: "job-001", NodeID: &nodeID, JobName: &jobName, Status: &status},
 	}
 
-	mockJobRepo.On("Count", nodeID, status).Return(int64(25), nil)
-	mockJobRepo.On("Find", nodeID, status, 10, 10).Return(expectedJobs, nil)
+	statuses := []string{"running"}
+	var jobTypes, frameworks []string
 
-	jobs, total, err := service.GetJobs(nodeID, status, 2, 10)
+	mockJobRepo.On("Count", nodeID, statuses, jobTypes, frameworks).Return(int64(25), nil)
+	mockJobRepo.On("Find", nodeID, statuses, jobTypes, frameworks, "", "", 10, 10).Return(expectedJobs, nil)
+
+	jobs, total, err := svc.GetJobs(nodeID, statuses, jobTypes, frameworks, "", "", 2, 10)
 
 	assert.NoError(t, err)
 	assert.Equal(t, int64(25), total)
 	assert.Len(t, jobs, 1)
 	assert.Equal(t, "job-001", jobs[0].JobID)
+	mockJobRepo.AssertExpectations(t)
+}
+
+func TestJobService_GetGroupedJobs(t *testing.T) {
+	mockJobRepo := new(MockJobRepository)
+	mockParamRepo := new(MockParameterRepository)
+	mockCodeRepo := new(MockCodeRepository)
+	mockMetricsRepo := new(MockMetricsRepository)
+
+	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
+
+	nodeID := "node-001"
+	pgid := int64(1000)
+	startTime := int64(1770373780000)
+	jobName1 := "VLLM::Worker_TP0"
+	jobName2 := "VLLM::Worker_TP1"
+	status := "running"
+
+	returnedJobs := []model.Job{
+		{JobID: "job-001", NodeID: &nodeID, PGID: &pgid, StartTime: &startTime, JobName: &jobName1, Status: &status},
+		{JobID: "job-002", NodeID: &nodeID, PGID: &pgid, StartTime: &startTime, JobName: &jobName2, Status: &status},
+	}
+
+	var statuses, jobTypes, frameworks []string
+	var cardCounts []int
+
+	mockJobRepo.On("CountGroups", "", statuses, jobTypes, frameworks, cardCounts).Return(int64(5), nil)
+	mockJobRepo.On("FindGrouped", "", statuses, jobTypes, frameworks, cardCounts, "", "", 20, 0).Return(returnedJobs, nil)
+
+	groups, total, err := svc.GetGroupedJobs("", statuses, jobTypes, frameworks, cardCounts, "", "", 1, 20)
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(5), total)
+	assert.Len(t, groups, 1)
+	assert.Equal(t, "job-001", groups[0].MainJob.JobID)
+	assert.Len(t, groups[0].ChildJobs, 1)
+	assert.Equal(t, "job-002", groups[0].ChildJobs[0].JobID)
+	assert.Equal(t, 2, groups[0].CardCount)
+	mockJobRepo.AssertExpectations(t)
+}
+
+func TestJobService_GetGroupedJobs_MultipleGroups(t *testing.T) {
+	mockJobRepo := new(MockJobRepository)
+	mockParamRepo := new(MockParameterRepository)
+	mockCodeRepo := new(MockCodeRepository)
+	mockMetricsRepo := new(MockMetricsRepository)
+
+	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
+
+	nodeID := "node-001"
+	pgid1 := int64(1000)
+	pgid2 := int64(2000)
+	startTime1 := int64(1770373780000)
+	startTime2 := int64(1770373790000)
+	jobName1 := "train.py"
+	jobName2 := "infer.py"
+	status := "running"
+
+	returnedJobs := []model.Job{
+		{JobID: "job-001", NodeID: &nodeID, PGID: &pgid1, StartTime: &startTime1, JobName: &jobName1, Status: &status},
+		{JobID: "job-002", NodeID: &nodeID, PGID: &pgid2, StartTime: &startTime2, JobName: &jobName2, Status: &status},
+	}
+
+	var statuses, jobTypes, frameworks []string
+	var cardCounts []int
+
+	mockJobRepo.On("CountGroups", "", statuses, jobTypes, frameworks, cardCounts).Return(int64(2), nil)
+	mockJobRepo.On("FindGrouped", "", statuses, jobTypes, frameworks, cardCounts, "", "", 20, 0).Return(returnedJobs, nil)
+
+	groups, total, err := svc.GetGroupedJobs("", statuses, jobTypes, frameworks, cardCounts, "", "", 1, 20)
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+	assert.Len(t, groups, 2)
+	assert.Equal(t, 1, groups[0].CardCount)
+	assert.Equal(t, 1, groups[1].CardCount)
+	assert.Empty(t, groups[0].ChildJobs)
+	assert.Empty(t, groups[1].ChildJobs)
+	mockJobRepo.AssertExpectations(t)
+}
+
+func TestJobService_GetDistinctCardCounts(t *testing.T) {
+	mockJobRepo := new(MockJobRepository)
+	mockParamRepo := new(MockParameterRepository)
+	mockCodeRepo := new(MockCodeRepository)
+	mockMetricsRepo := new(MockMetricsRepository)
+
+	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
+
+	mockJobRepo.On("DistinctCardCounts").Return([]int{1, 2, 4, 8}, nil)
+
+	counts, err := svc.GetDistinctCardCounts()
+
+	assert.NoError(t, err)
+	assert.Equal(t, []int{1, 2, 4, 8}, counts)
 	mockJobRepo.AssertExpectations(t)
 }

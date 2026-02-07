@@ -161,6 +161,16 @@ func (h *JobHandler) GetGroupedJobs(c *gin.Context) {
 	})
 }
 
+// GetDistinctCardCounts 获取所有去重的卡数值
+func (h *JobHandler) GetDistinctCardCounts(c *gin.Context) {
+	counts, err := h.jobService.GetDistinctCardCounts()
+	if err != nil {
+		utils.ErrorResponse(c, 500, "Database error: "+err.Error())
+		return
+	}
+	utils.SuccessResponse(c, counts)
+}
+
 // GetJobStats 获取作业统计信息
 func (h *JobHandler) GetJobStats(c *gin.Context) {
 	stats, err := h.jobService.GetJobStats()

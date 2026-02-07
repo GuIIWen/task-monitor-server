@@ -82,6 +82,7 @@ func main() {
 		{
 			jobs.GET("", jobHandler.GetJobs)
 			jobs.GET("/grouped", jobHandler.GetGroupedJobs)
+			jobs.GET("/grouped/card-counts", jobHandler.GetDistinctCardCounts)
 			jobs.GET("/stats", jobHandler.GetJobStats)
 			jobs.GET("/:jobId", jobHandler.GetJobByID)
 			jobs.GET("/:jobId/parameters", jobHandler.GetJobParameters)

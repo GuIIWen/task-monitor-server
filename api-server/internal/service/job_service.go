@@ -119,6 +119,11 @@ func (s *JobService) GetJobStats() (map[string]int64, error) {
 	return stats, nil
 }
 
+// GetDistinctCardCounts 获取所有去重的卡数值
+func (s *JobService) GetDistinctCardCounts() ([]int, error) {
+	return s.jobRepo.DistinctCardCounts()
+}
+
 // GetGroupedJobs 按 node_id+pgid 分组查询作业
 func (s *JobService) GetGroupedJobs(nodeID string, statuses []string, jobTypes []string, frameworks []string, cardCounts []int, sortBy, sortOrder string, page, pageSize int) ([]JobGroup, int64, error) {
 	if page < 1 {
@@ -139,7 +144,7 @@ func (s *JobService) GetGroupedJobs(nodeID string, statuses []string, jobTypes [
 		return nil, 0, fmt.Errorf("find grouped: %w", err)
 	}
 
-	// 按 node_id+pgid 组装分组
+	// 按 node_id+pgid+start_time 组装分组
 	groupMap := make(map[string]*JobGroup)
 	var groupOrder []string
 
@@ -147,13 +152,17 @@ func (s *JobService) GetGroupedJobs(nodeID string, statuses []string, jobTypes [
 		job := jobs[i]
 		var nid string
 		var pgid int64
+		var startTime int64
 		if job.NodeID != nil {
 			nid = *job.NodeID
 		}
 		if job.PGID != nil {
 			pgid = *job.PGID
 		}
-		key := fmt.Sprintf("%s_%d", nid, pgid)
+		if job.StartTime != nil {
+			startTime = *job.StartTime
+		}
+		key := fmt.Sprintf("%s_%d_%d", nid, pgid, startTime)
 
 		if g, ok := groupMap[key]; ok {
 			g.ChildJobs = append(g.ChildJobs, job)

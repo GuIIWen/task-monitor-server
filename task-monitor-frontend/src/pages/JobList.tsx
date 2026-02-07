@@ -3,7 +3,7 @@ import { Table, Space, Button, Tag } from 'antd';
 import type { TablePaginationConfig, SorterResult, FilterValue } from 'antd/es/table/interface';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { StatusBadge } from '@/components/Common';
-import { useGroupedJobs } from '@/hooks/useJobs';
+import { useGroupedJobs, useDistinctCardCounts } from '@/hooks/useJobs';
 import { useNodes } from '@/hooks/useNodes';
 import { formatTimestamp, JOB_TYPE_MAP } from '@/utils';
 import type { Job, JobListParams, JobGroup } from '@/types/job';
@@ -39,6 +39,7 @@ const JobList: React.FC = () => {
 
   const { data, isLoading } = useGroupedJobs(params);
   const { data: nodesData } = useNodes();
+  const { data: cardCountsData } = useDistinctCardCounts();
 
   // 动态生成节点筛选选项
   const nodeFilters = (nodesData || []).map((n: any) => ({
@@ -46,8 +47,10 @@ const JobList: React.FC = () => {
     value: n.nodeId,
   }));
 
-  // 卡数筛选选项（固定常见值）
-  const cardCountFilters = [1, 2, 4, 5, 8, 16, 32, 44].map(c => ({ text: String(c), value: c }));
+  // 动态生成卡数筛选选项
+  const cardCountFilters = (cardCountsData || [])
+    .sort((a: number, b: number) => a - b)
+    .map((c: number) => ({ text: String(c), value: c }));
   const handleTableChange = (
     pagination: TablePaginationConfig,
     filters: Record<string, FilterValue | null>,

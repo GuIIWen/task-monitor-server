@@ -39,4 +39,11 @@ export const jobApi = {
   getGroupedJobs: async (params?: JobListParams): Promise<GroupedJobListResponse> => {
     return apiClient.get('/jobs/grouped', { params });
   },
+
+  /**
+   * 获取所有去重的卡数值
+   */
+  getDistinctCardCounts: async (): Promise<number[]> => {
+    return apiClient.get('/jobs/grouped/card-counts');
+  },
 };

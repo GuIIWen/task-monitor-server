@@ -58,3 +58,14 @@ export const useGroupedJobs = (params?: JobListParams) => {
     refetchInterval: REFRESH_INTERVAL,
   });
 };
+
+/**
+ * 获取所有去重的卡数值
+ */
+export const useDistinctCardCounts = () => {
+  return useQuery({
+    queryKey: ['distinctCardCounts'],
+    queryFn: () => jobApi.getDistinctCardCounts(),
+    refetchInterval: REFRESH_INTERVAL,
+  });
+};
