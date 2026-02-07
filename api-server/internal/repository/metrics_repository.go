@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"github.com/task-monitor/api-server/internal/model"
 	"gorm.io/gorm"
 )
 
@@ -77,4 +78,31 @@ func (r *MetricsRepository) DistinctNPUCardCounts() ([]int, error) {
 		}
 	}
 	return result, nil
+}
+
+// FindNPUProcessesByPID 查询单个进程占用的所有 NPU 记录
+func (r *MetricsRepository) FindNPUProcessesByPID(nodeID string, pid int64) ([]model.NPUProcess, error) {
+	var processes []model.NPUProcess
+	err := r.db.Where("node_id = ? AND pid = ?", nodeID, pid).Find(&processes).Error
+	return processes, err
+}
+
+// FindLatestNPUMetrics 查询指定卡号的最新 NPU 指标
+func (r *MetricsRepository) FindLatestNPUMetrics(nodeID string, npuIDs []int) ([]model.NPUMetric, error) {
+	if len(npuIDs) == 0 {
+		return []model.NPUMetric{}, nil
+	}
+
+	var metrics []model.NPUMetric
+	err := r.db.Raw(`
+		SELECT m.* FROM npu_metrics m
+		INNER JOIN (
+			SELECT npu_id, bus_id, MAX(timestamp) AS max_ts
+			FROM npu_metrics
+			WHERE node_id = ? AND npu_id IN ?
+			GROUP BY npu_id, bus_id
+		) latest ON m.npu_id = latest.npu_id AND m.bus_id = latest.bus_id AND m.timestamp = latest.max_ts
+		WHERE m.node_id = ?
+	`, nodeID, npuIDs, nodeID).Scan(&metrics).Error
+	return metrics, err
 }

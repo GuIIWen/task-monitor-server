@@ -35,6 +35,94 @@ func (s *JobService) GetJobByID(jobID string) (*model.Job, error) {
 	return s.jobRepo.FindByID(jobID)
 }
 
+// GetJobDetail 获取作业详情（含 NPU 卡信息和关联进程）
+func (s *JobService) GetJobDetail(jobID string) (*JobDetailResponse, error) {
+	job, err := s.jobRepo.FindByID(jobID)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &JobDetailResponse{
+		Job:         *job,
+		NPUCards:    []NPUCardInfo{},
+		RelatedJobs: []model.Job{},
+	}
+
+	if job.NodeID == nil || job.PID == nil {
+		return resp, nil
+	}
+	nodeID := *job.NodeID
+	pid := *job.PID
+
+	// 1. 查询该进程的 NPU 占用
+	npuProcs, err := s.metricsRepo.FindNPUProcessesByPID(nodeID, pid)
+	if err != nil {
+		return resp, nil // NPU 查询失败不影响基本信息
+	}
+
+	// 2. 收集 npu_id，查卡详情
+	npuIDSet := make(map[int]bool)
+	for _, np := range npuProcs {
+		if np.NPUID != nil {
+			npuIDSet[*np.NPUID] = true
+		}
+	}
+
+	var npuIDs []int
+	for id := range npuIDSet {
+		npuIDs = append(npuIDs, id)
+	}
+
+	// metricMap 以 "npu_id:bus_id" 为 key，避免 Ascend910 多 Chip 同 npu_id 覆盖
+	type metricKey struct {
+		npuID int
+		busID string
+	}
+	metricMap := make(map[metricKey]*model.NPUMetric)
+	if len(npuIDs) > 0 {
+		metrics, err := s.metricsRepo.FindLatestNPUMetrics(nodeID, npuIDs)
+		if err == nil {
+			for i := range metrics {
+				if metrics[i].NPUID != nil {
+					busID := ""
+					if metrics[i].BusID != nil {
+						busID = *metrics[i].BusID
+					}
+					metricMap[metricKey{*metrics[i].NPUID, busID}] = &metrics[i]
+				}
+			}
+		}
+	}
+
+	// 3. 组装 NPUCardInfo — 按 npu_id 匹配，每个 npu_id 可能对应多条 metric（多 bus_id）
+	for _, np := range npuProcs {
+		if np.NPUID == nil {
+			continue
+		}
+		info := NPUCardInfo{
+			NpuID: *np.NPUID,
+		}
+		if np.MemoryUsageMB != nil {
+			info.MemoryUsageMB = *np.MemoryUsageMB
+		}
+		// 查找该 npu_id 对应的 metric（优先精确匹配，否则取任意一条）
+		for k, m := range metricMap {
+			if k.npuID == *np.NPUID {
+				info.Metric = m
+				break
+			}
+		}
+		resp.NPUCards = append(resp.NPUCards, info)
+	}
+
+	// 4. 查关联 NPU 进程（同 pgid 范围内 Union-Find）
+	if job.PGID != nil {
+		resp.RelatedJobs = s.findRelatedNPUJobs(job)
+	}
+
+	return resp, nil
+}
+
 // GetJobsByNodeID 根据节点ID获取作业列表
 func (s *JobService) GetJobsByNodeID(nodeID string) ([]model.Job, error) {
 	return s.jobRepo.FindByNodeID(nodeID)
@@ -81,6 +169,97 @@ func (s *JobService) GetJobs(nodeID string, statuses []string, jobTypes []string
 	}
 
 	return jobs, total, nil
+}
+
+// findRelatedNPUJobs 查找同组的 NPU 关联进程（排除自身）
+func (s *JobService) findRelatedNPUJobs(job *model.Job) []model.Job {
+	if job.NodeID == nil || job.PGID == nil || job.PID == nil {
+		return nil
+	}
+	nodeID := *job.NodeID
+	pgid := *job.PGID
+	selfPID := *job.PID
+
+	// 查同 pgid 的所有 jobs
+	samePGIDJobs, err := s.jobRepo.FindByNodeIDAndPGID(nodeID, pgid)
+	if err != nil || len(samePGIDJobs) <= 1 {
+		return nil
+	}
+
+	// Union-Find 分组
+	parent := make(map[int64]int64)
+	pidIndex := make(map[int64]int)
+	for i, j := range samePGIDJobs {
+		if j.PID == nil {
+			continue
+		}
+		pid := *j.PID
+		parent[pid] = pid
+		pidIndex[pid] = i
+	}
+
+	var find func(int64) int64
+	find = func(pid int64) int64 {
+		if parent[pid] != pid {
+			parent[pid] = find(parent[pid])
+		}
+		return parent[pid]
+	}
+
+	for _, j := range samePGIDJobs {
+		if j.PID == nil || j.PPID == nil {
+			continue
+		}
+		ppid := *j.PPID
+		if _, exists := parent[ppid]; !exists {
+			continue
+		}
+		ppidIdx := pidIndex[ppid]
+		parentJob := samePGIDJobs[ppidIdx]
+		if parentJob.ProcessName != nil && ppidStopNames[*parentJob.ProcessName] {
+			continue
+		}
+		rootA := find(*j.PID)
+		rootB := find(ppid)
+		if rootA != rootB {
+			parent[rootA] = rootB
+		}
+	}
+
+	// 找到当前 job 所在组的根
+	selfRoot := find(selfPID)
+
+	// 收集同组的所有 pid
+	var groupPIDs []int64
+	for _, j := range samePGIDJobs {
+		if j.PID == nil {
+			continue
+		}
+		if find(*j.PID) == selfRoot && *j.PID != selfPID {
+			groupPIDs = append(groupPIDs, *j.PID)
+		}
+	}
+
+	if len(groupPIDs) == 0 {
+		return nil
+	}
+
+	// 查 NPU 占用，只返回有 NPU 记录的进程
+	npuMap, err := s.metricsRepo.FindNPUCardsByPIDs(nodeID, groupPIDs)
+	if err != nil || len(npuMap) == 0 {
+		return nil
+	}
+
+	var related []model.Job
+	for _, j := range samePGIDJobs {
+		if j.PID == nil || *j.PID == selfPID {
+			continue
+		}
+		if find(*j.PID) == selfRoot && len(npuMap[*j.PID]) > 0 {
+			related = append(related, j)
+		}
+	}
+	return related
 }
 
 // GetJobStats 获取作业统计信息
