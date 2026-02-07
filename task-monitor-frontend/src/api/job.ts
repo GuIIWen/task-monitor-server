@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { JobDetailResponse, JobListParams, JobListResponse, JobStats, GroupedJobListResponse } from '@/types/job';
+import type { JobDetailResponse, JobListParams, JobListResponse, JobStats, GroupedJobListResponse, Parameter } from '@/types/job';
 
 /**
  * 作业相关API
@@ -31,6 +31,13 @@ export const jobApi = {
    */
   getJobCode: async (jobId: string): Promise<any[]> => {
     return apiClient.get(`/jobs/${jobId}/code`);
+  },
+
+  /**
+   * 获取作业参数（含环境变量）
+   */
+  getJobParameters: async (jobId: string): Promise<Parameter[]> => {
+    return apiClient.get(`/jobs/${jobId}/parameters`);
   },
 
   /**

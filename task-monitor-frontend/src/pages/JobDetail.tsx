@@ -4,7 +4,7 @@ import { Card, Descriptions, Button, Space, Tag, Modal, Table, Progress, Typogra
 import type { ColumnsType } from 'antd/es/table';
 import { ArrowLeftOutlined, CodeOutlined, DownOutlined, RightOutlined } from '@ant-design/icons';
 import { StatusBadge, LoadingSpinner } from '@/components/Common';
-import { useJob, useJobCode } from '@/hooks';
+import { useJob, useJobCode, useJobParameters } from '@/hooks';
 import { jobApi } from '@/api';
 import { formatTimestamp, JOB_TYPE_MAP } from '@/utils';
 import type { Job, NPUCardInfo, JobDetailResponse } from '@/types/job';
@@ -14,7 +14,9 @@ const JobDetail: React.FC = () => {
   const navigate = useNavigate();
   const { data: detail, isLoading } = useJob(jobId!);
   const { data: codeList } = useJobCode(jobId!);
+  const { data: paramList } = useJobParameters(jobId!);
   const [codeModalOpen, setCodeModalOpen] = useState(false);
+  const [envModalOpen, setEnvModalOpen] = useState(false);
   const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>([]);
   const [childDetailMap, setChildDetailMap] = useState<Record<string, JobDetailResponse>>({});
   const [childLoadingMap, setChildLoadingMap] = useState<Record<string, boolean>>({});
@@ -92,6 +94,46 @@ const JobDetail: React.FC = () => {
         const v = record.metric?.aicoreUsagePercent;
         if (v == null) return '-';
         return <Progress percent={Number(v.toFixed(1))} size="small" />;
+      },
+    },
+    {
+      title: 'HBM',
+      key: 'hbm',
+      width: 160,
+      render: (_, record) => {
+        const used = record.metric?.hbmUsageMb;
+        const total = record.metric?.hbmTotalMb;
+        if (used == null || total == null) return '-';
+        const pct = total > 0 ? Number(((used / total) * 100).toFixed(1)) : 0;
+        return (
+          <Space direction="vertical" size={0} style={{ width: '100%' }}>
+            <Progress percent={pct} size="small" />
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {used.toFixed(0)} / {total.toFixed(0)} MB
+            </Typography.Text>
+          </Space>
+        );
+      },
+    },
+  ];
+
+  // 子进程 NPU 卡表：HBM 列显示该进程自己的显存占用，而非整卡 HBM
+  const childNpuColumns: ColumnsType<NPUCardInfo> = [
+    { title: '卡号', dataIndex: 'npuId', width: 80 },
+    {
+      title: '进程显存 (MB)',
+      dataIndex: 'memoryUsageMb',
+      width: 120,
+      render: (v: number) => v?.toFixed(1) ?? '-',
+    },
+    {
+      title: '健康状态',
+      key: 'health',
+      width: 100,
+      render: (_, record) => {
+        const h = record.metric?.health;
+        if (!h) return '-';
+        return <Tag color={h === 'OK' ? 'green' : 'red'}>{h}</Tag>;
       },
     },
     {
@@ -204,6 +246,29 @@ const JobDetail: React.FC = () => {
               </Space>
             ) : '-'}
           </Descriptions.Item>
+          <Descriptions.Item label="环境变量" span={2}>
+            {(() => {
+              const envStr = paramList?.[0]?.envVars;
+              if (!envStr) return '-';
+              try {
+                const envObj = JSON.parse(envStr) as Record<string, string>;
+                const entries = Object.entries(envObj);
+                if (entries.length === 0) return '-';
+                const preview = entries.slice(0, 3).map(([k, v]) => `${k}=${v}`).join('; ');
+                const suffix = entries.length > 3 ? ` ... 共${entries.length}项` : '';
+                return (
+                  <Space>
+                    <Typography.Text style={{ fontSize: 12 }} ellipsis>{preview}{suffix}</Typography.Text>
+                    <Button type="link" size="small" onClick={() => setEnvModalOpen(true)}>
+                      查看全部
+                    </Button>
+                  </Space>
+                );
+              } catch {
+                return <code style={{ fontSize: 12 }}>{envStr.slice(0, 100)}</code>;
+              }
+            })()}
+          </Descriptions.Item>
           <Descriptions.Item label="开始时间">
             {formatTimestamp(job.startTime)}
           </Descriptions.Item>
@@ -265,7 +330,7 @@ const JobDetail: React.FC = () => {
                         rowKey={(r) => `${r.npuId}-${r.metric?.busId ?? ''}`}
                         pagination={false}
                         size="small"
-                        columns={npuCardColumns}
+                        columns={childNpuColumns}
                         style={{ marginTop: 8 }}
                       />
                     )}
@@ -314,6 +379,39 @@ const JobDetail: React.FC = () => {
           )}
         </Modal>
       )}
+
+      <Modal
+        title="环境变量"
+        open={envModalOpen}
+        onCancel={() => setEnvModalOpen(false)}
+        footer={null}
+        width={900}
+      >
+        {(() => {
+          const envStr = paramList?.[0]?.envVars;
+          if (!envStr) return <Typography.Text type="secondary">暂无环境变量</Typography.Text>;
+          try {
+            const envObj = JSON.parse(envStr) as Record<string, string>;
+            const entries = Object.entries(envObj);
+            if (entries.length === 0) return <Typography.Text type="secondary">暂无环境变量</Typography.Text>;
+            return (
+              <pre style={{
+                background: '#f5f5f5',
+                padding: 16,
+                borderRadius: 4,
+                maxHeight: 600,
+                overflow: 'auto',
+                fontSize: 13,
+                lineHeight: 1.8,
+              }}>
+                {entries.map(([k, v]) => `${k}=${v}`).join('\n')}
+              </pre>
+            );
+          } catch {
+            return <pre style={{ background: '#f5f5f5', padding: 16, maxHeight: 600, overflow: 'auto' }}>{envStr}</pre>;
+          }
+        })()}
+      </Modal>
     </Space>
   );
 };

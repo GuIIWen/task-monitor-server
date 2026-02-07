@@ -49,6 +49,18 @@ export interface JobDetailResponse {
   relatedJobs: Job[];
 }
 
+export interface Parameter {
+  id: number;
+  jobId: string | null;
+  parameterRaw: string | null;
+  parameterData: string | null;
+  parameterSource: string | null;
+  configFilePath: string | null;
+  configFileContent: string | null;
+  envVars: string | null;
+  timestamp: string;
+}
+
 export interface JobDetail extends Job {
   node?: any;
   parameters?: any[];

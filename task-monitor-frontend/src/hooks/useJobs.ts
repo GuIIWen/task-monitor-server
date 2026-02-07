@@ -49,6 +49,17 @@ export const useJobCode = (jobId: string) => {
 };
 
 /**
+ * 获取作业参数（含环境变量）
+ */
+export const useJobParameters = (jobId: string) => {
+  return useQuery({
+    queryKey: ['jobParameters', jobId],
+    queryFn: () => jobApi.getJobParameters(jobId),
+    enabled: !!jobId,
+  });
+};
+
+/**
  * 获取分组作业列表
  */
 export const useGroupedJobs = (params?: JobListParams) => {
