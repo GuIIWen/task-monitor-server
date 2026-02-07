@@ -301,14 +301,18 @@ func (s *JobService) buildGroupedJobs(jobs []model.Job) ([]JobGroup, error) {
 			MainJob:   jobs[mainIdx],
 			ChildJobs: make([]model.Job, 0, len(info.jobs)-1),
 		}
+		npuMap := nodeNPUMap[info.nid]
 		for _, idx := range info.jobs {
 			if idx != mainIdx {
-				group.ChildJobs = append(group.ChildJobs, jobs[idx])
+				child := jobs[idx]
+				// 只保留在 NPU 上运行的子进程
+				if child.PID != nil && npuMap != nil && len(npuMap[*child.PID]) > 0 {
+					group.ChildJobs = append(group.ChildJobs, child)
+				}
 			}
 		}
 
-		// 计算卡数
-		npuMap := nodeNPUMap[info.nid]
+		// 计算卡数（复用上面已获取的 npuMap）
 		if npuMap != nil {
 			npuSet := make(map[int]bool)
 			for _, pid := range info.pids {

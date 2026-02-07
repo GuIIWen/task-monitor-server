@@ -591,3 +591,86 @@ func TestJobService_GetGroupedJobs_PPIDChain(t *testing.T) {
 	mockJobRepo.AssertExpectations(t)
 	mockMetricsRepo.AssertExpectations(t)
 }
+
+func TestJobService_GetGroupedJobs_ChildJobsFilteredByNPU(t *testing.T) {
+	mockJobRepo := new(MockJobRepository)
+	mockParamRepo := new(MockParameterRepository)
+	mockCodeRepo := new(MockCodeRepository)
+	mockMetricsRepo := new(MockMetricsRepository)
+
+	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
+
+	nodeID := "node-001"
+	// train.py (pid=100) 是主进程
+	// python3.1 (pid=101, ppid=100) 在 NPU 上运行
+	// python3.1 (pid=102, ppid=100) 在 NPU 上运行
+	// pt_data_worker (pid=103, ppid=100) 不在 NPU 上
+	// pt_data_worker (pid=104, ppid=100) 不在 NPU 上
+	pid1 := int64(100)
+	pid2 := int64(101)
+	pid3 := int64(102)
+	pid4 := int64(103)
+	pid5 := int64(104)
+	ppid1 := int64(1)
+	ppid2 := int64(100)
+	ppid3 := int64(100)
+	ppid4 := int64(100)
+	ppid5 := int64(100)
+	startTime1 := int64(1770373780000)
+	startTime2 := int64(1770373781000)
+	startTime3 := int64(1770373781000)
+	startTime4 := int64(1770373782000)
+	startTime5 := int64(1770373782000)
+	name1 := "train.py"
+	name2 := "python3.1"
+	name3 := "python3.1"
+	name4 := "pt_data_worker"
+	name5 := "pt_data_worker"
+	status := "running"
+
+	returnedJobs := []model.Job{
+		{JobID: "job-001", NodeID: &nodeID, PID: &pid1, PPID: &ppid1, StartTime: &startTime1, JobName: &name1, ProcessName: &name1, Status: &status},
+		{JobID: "job-002", NodeID: &nodeID, PID: &pid2, PPID: &ppid2, StartTime: &startTime2, JobName: &name2, ProcessName: &name2, Status: &status},
+		{JobID: "job-003", NodeID: &nodeID, PID: &pid3, PPID: &ppid3, StartTime: &startTime3, JobName: &name3, ProcessName: &name3, Status: &status},
+		{JobID: "job-004", NodeID: &nodeID, PID: &pid4, PPID: &ppid4, StartTime: &startTime4, JobName: &name4, ProcessName: &name4, Status: &status},
+		{JobID: "job-005", NodeID: &nodeID, PID: &pid5, PPID: &ppid5, StartTime: &startTime5, JobName: &name5, ProcessName: &name5, Status: &status},
+	}
+
+	var statuses, jobTypes, frameworks []string
+	var cardCounts []int
+
+	mockJobRepo.On("FindFiltered", "", statuses, jobTypes, frameworks, "", "").Return(returnedJobs, nil)
+
+	// 只有 pid=100,101,102 在 NPU 上，103,104 不在
+	npuMap := map[int64][]int{
+		100: {0, 1},
+		101: {0},
+		102: {1},
+	}
+	mockMetricsRepo.On("FindNPUCardsByPIDs", "node-001", mock.MatchedBy(func(pids []int64) bool {
+		return len(pids) == 5
+	})).Return(npuMap, nil)
+
+	groups, total, err := svc.GetGroupedJobs("", statuses, jobTypes, frameworks, cardCounts, "", "", 1, 20)
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	assert.Len(t, groups, 1)
+	// train.py 是 MainJob
+	assert.Equal(t, "job-001", groups[0].MainJob.JobID)
+	// childJobs 只包含 NPU 进程（python3.1），不包含 pt_data_worker
+	assert.Len(t, groups[0].ChildJobs, 2)
+	childIDs := make(map[string]bool)
+	for _, child := range groups[0].ChildJobs {
+		childIDs[child.JobID] = true
+	}
+	assert.True(t, childIDs["job-002"], "NPU child job-002 should be included")
+	assert.True(t, childIDs["job-003"], "NPU child job-003 should be included")
+	assert.False(t, childIDs["job-004"], "non-NPU child job-004 should be excluded")
+	assert.False(t, childIDs["job-005"], "non-NPU child job-005 should be excluded")
+	// 卡数=2（NPU 0 和 NPU 1）
+	assert.NotNil(t, groups[0].CardCount)
+	assert.Equal(t, 2, *groups[0].CardCount)
+	mockJobRepo.AssertExpectations(t)
+	mockMetricsRepo.AssertExpectations(t)
+}

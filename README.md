@@ -138,6 +138,7 @@ API Server提供以下RESTful接口：
 - `GET /api/v1/jobs/grouped` - 获取分组作业列表（按 node_id+pgid+start_time 分组）
   - 查询参数: `nodeId`, `status`, `type`, `framework`, `cardCount`, `sortBy`, `sortOrder`, `page`, `pageSize`
   - 多卡任务自动合并为一组，返回主任务和子任务列表及卡数
+  - `childJobs` 只包含在 NPU 上运行的子进程，非 NPU 辅助进程（如 `pt_data_worker`）会被过滤
 - `GET /api/v1/jobs/grouped/card-counts` - 获取所有去重的卡数值（用于前端筛选项）
 - `GET /api/v1/jobs/:jobId` - 获取作业详情
 - `GET /api/v1/jobs/:jobId/parameters` - 获取作业参数
