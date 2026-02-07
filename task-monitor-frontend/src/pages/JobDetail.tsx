@@ -121,12 +121,6 @@ const JobDetail: React.FC = () => {
   const childNpuColumns: ColumnsType<NPUCardInfo> = [
     { title: '卡号', dataIndex: 'npuId', width: 80 },
     {
-      title: '进程显存 (MB)',
-      dataIndex: 'memoryUsageMb',
-      width: 120,
-      render: (v: number) => v?.toFixed(1) ?? '-',
-    },
-    {
       title: '健康状态',
       key: 'health',
       width: 100,
@@ -137,14 +131,15 @@ const JobDetail: React.FC = () => {
       },
     },
     {
-      title: 'HBM',
-      key: 'hbm',
-      width: 160,
+      title: '进程 HBM 占用',
+      key: 'processHbm',
+      width: 180,
       render: (_, record) => {
-        const used = record.metric?.hbmUsageMb;
+        const used = record.memoryUsageMb;
         const total = record.metric?.hbmTotalMb;
-        if (used == null || total == null) return '-';
-        const pct = total > 0 ? Number(((used / total) * 100).toFixed(1)) : 0;
+        if (used == null) return '-';
+        if (total == null || total <= 0) return `${used.toFixed(0)} MB`;
+        const pct = Number(((used / total) * 100).toFixed(1));
         return (
           <Space direction="vertical" size={0} style={{ width: '100%' }}>
             <Progress percent={pct} size="small" />
@@ -161,30 +156,35 @@ const JobDetail: React.FC = () => {
     {
       title: 'PID',
       dataIndex: 'pid',
-      width: 100,
+      width: 150,
+      align: 'center',
     },
     {
       title: '进程名称',
       dataIndex: 'processName',
       ellipsis: true,
+      align: 'center',
       render: (v: string | null) => v || '-',
     },
     {
       title: '状态',
       dataIndex: 'status',
-      width: 100,
+      width: 150,
+      align: 'center',
       render: (status: string | null) => <StatusBadge status={status as any} type="job" />,
     },
     {
       title: '开始时间',
       dataIndex: 'startTime',
       width: 180,
+      align: 'center',
       render: (v: number | null) => formatTimestamp(v),
     },
     {
       title: '操作',
       key: 'action',
       width: 100,
+      align: 'center',
       render: (_, record) => {
         const expanded = expandedRowKeys.includes(record.jobId);
         return (
@@ -228,7 +228,9 @@ const JobDetail: React.FC = () => {
           <Descriptions.Item label="父进程ID">{job.ppid || '-'}</Descriptions.Item>
           <Descriptions.Item label="进程组ID">{job.pgid || '-'}</Descriptions.Item>
           <Descriptions.Item label="进程名称">{job.processName || '-'}</Descriptions.Item>
-          <Descriptions.Item label="工作目录" span={2}>{job.cwd || '-'}</Descriptions.Item>
+          <Descriptions.Item label="工作目录" span={2}>
+            <code style={{ wordBreak: 'break-all' }}>{job.cwd || '-'}</code>
+          </Descriptions.Item>
           <Descriptions.Item label="命令行" span={2}>
             <code style={{ wordBreak: 'break-all' }}>{job.commandLine || '-'}</code>
           </Descriptions.Item>
@@ -258,7 +260,15 @@ const JobDetail: React.FC = () => {
                 const suffix = entries.length > 3 ? ` ... 共${entries.length}项` : '';
                 return (
                   <Space>
-                    <Typography.Text style={{ fontSize: 12 }} ellipsis>{preview}{suffix}</Typography.Text>
+                    <code style={{
+                      fontSize: 12,
+                      maxWidth: 600,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      display: 'inline-block',
+                      verticalAlign: 'middle',
+                    }}>{preview}{suffix}</code>
                     <Button type="link" size="small" onClick={() => setEnvModalOpen(true)}>
                       查看全部
                     </Button>
@@ -299,6 +309,7 @@ const JobDetail: React.FC = () => {
             rowKey="jobId"
             pagination={false}
             size="small"
+            bordered
             columns={relatedJobColumns}
             expandable={{
               expandedRowKeys,
@@ -318,11 +329,6 @@ const JobDetail: React.FC = () => {
                     <Descriptions bordered size="small" column={2}>
                       <Descriptions.Item label="PID">{childDetail.job.pid ?? '-'}</Descriptions.Item>
                       <Descriptions.Item label="进程名称">{childDetail.job.processName ?? '-'}</Descriptions.Item>
-                      <Descriptions.Item label="命令行" span={2}>
-                        <code style={{ wordBreak: 'break-all', fontSize: 12 }}>
-                          {childDetail.job.commandLine ?? '-'}
-                        </code>
-                      </Descriptions.Item>
                     </Descriptions>
                     {childCards.length > 0 && (
                       <Table<NPUCardInfo>
