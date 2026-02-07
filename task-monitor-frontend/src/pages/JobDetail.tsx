@@ -456,7 +456,7 @@ const JobDetail: React.FC = () => {
                       key={idx}
                       type={issue.severity === 'critical' ? 'error' : issue.severity === 'warning' ? 'warning' : 'info'}
                       showIcon
-                      message={<span><Tag size="small">{issue.category}</Tag>{issue.description}</span>}
+                      message={<span><Tag>{issue.category}</Tag>{issue.description}</span>}
                       description={<span>建议：{issue.suggestion}</span>}
                     />
                   ))}
