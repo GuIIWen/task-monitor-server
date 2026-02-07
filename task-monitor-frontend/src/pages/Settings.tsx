@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Form, Input, InputNumber, Switch, Button, message, Spin, Table, Modal, Popconfirm, Space } from 'antd';
+import { Collapse, Form, Input, InputNumber, Switch, Button, message, Spin, Table, Modal, Popconfirm, Space } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { configApi, type LLMConfig } from '@/api/config';
 import { authApi, type User } from '@/api/auth';
@@ -106,112 +106,91 @@ const Settings: React.FC = () => {
   return (
     <div>
       <h2 style={{ marginBottom: 24 }}>系统设置</h2>
-      <Card title="LLM 智能分析配置" style={{ maxWidth: 600 }}>
-        <Spin spinning={loading}>
-          <Form
-            form={form}
-            layout="vertical"
-            onFinish={handleSave}
-            initialValues={{ enabled: false, timeout: 60 }}
-          >
-            <Form.Item
-              name="enabled"
-              label="启用 LLM 分析"
-              valuePropName="checked"
-            >
-              <Switch />
-            </Form.Item>
-
-            <Form.Item
-              name="endpoint"
-              label="接口地址"
-              rules={[{ required: true, message: '请输入接口地址' }]}
-            >
-              <Input placeholder="http://localhost:8000/v1" />
-            </Form.Item>
-
-            <Form.Item
-              name="api_key"
-              label="API Key"
-            >
-              <Input.Password placeholder="输入新的 API Key（留空则不修改）" />
-            </Form.Item>
-
-            <Form.Item
-              name="model"
-              label="模型名称"
-              rules={[{ required: true, message: '请输入模型名称' }]}
-            >
-              <Input placeholder="qwen2.5" />
-            </Form.Item>
-
-            <Form.Item
-              name="timeout"
-              label="超时时间（秒）"
-              rules={[{ required: true, message: '请输入超时时间' }]}
-            >
-              <InputNumber min={1} max={300} style={{ width: '100%' }} />
-            </Form.Item>
-
-            <Form.Item>
-              <Button type="primary" htmlType="submit" loading={saving}>
-                保存配置
+      <Collapse
+        style={{ maxWidth: 600 }}
+        items={[
+          {
+            key: 'llm',
+            label: 'LLM 智能分析配置',
+            children: (
+              <Spin spinning={loading}>
+                <Form
+                  form={form}
+                  layout="vertical"
+                  onFinish={handleSave}
+                  initialValues={{ enabled: false, timeout: 60 }}
+                >
+                  <Form.Item name="enabled" label="启用 LLM 分析" valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                  <Form.Item name="endpoint" label="接口地址" rules={[{ required: true, message: '请输入接口地址' }]}>
+                    <Input placeholder="http://localhost:8000/v1" />
+                  </Form.Item>
+                  <Form.Item name="api_key" label="API Key">
+                    <Input.Password placeholder="输入新的 API Key（留空则不修改）" />
+                  </Form.Item>
+                  <Form.Item name="model" label="模型名称" rules={[{ required: true, message: '请输入模型名称' }]}>
+                    <Input placeholder="qwen2.5" />
+                  </Form.Item>
+                  <Form.Item name="timeout" label="超时时间（秒）" rules={[{ required: true, message: '请输入超时时间' }]}>
+                    <InputNumber min={1} max={300} style={{ width: '100%' }} />
+                  </Form.Item>
+                  <Form.Item>
+                    <Button type="primary" htmlType="submit" loading={saving}>保存配置</Button>
+                  </Form.Item>
+                </Form>
+              </Spin>
+            ),
+          },
+          {
+            key: 'users',
+            label: '用户管理',
+            extra: (
+              <Button
+                type="primary"
+                size="small"
+                icon={<PlusOutlined />}
+                onClick={(e) => { e.stopPropagation(); setAddModalOpen(true); }}
+              >
+                添加用户
               </Button>
-            </Form.Item>
-          </Form>
-        </Spin>
-      </Card>
-
-      <Card
-        title="用户管理"
-        style={{ maxWidth: 600, marginTop: 24 }}
-        extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddModalOpen(true)}>
-            添加用户
-          </Button>
-        }
-      >
-        <Table
-          dataSource={users}
-          rowKey="id"
-          loading={usersLoading}
-          pagination={false}
-          columns={[
-            { title: '用户名', dataIndex: 'username', key: 'username' },
-            {
-              title: '创建时间',
-              dataIndex: 'createdAt',
-              key: 'createdAt',
-              render: (v: string) => new Date(v).toLocaleString(),
-            },
-            {
-              title: '操作',
-              key: 'action',
-              render: (_: unknown, record: User) => (
-                <Space>
-                  <Button
-                    size="small"
-                    onClick={() => {
-                      setEditingUser(record);
-                      setPwdModalOpen(true);
-                    }}
-                  >
-                    修改密码
-                  </Button>
-                  {record.username !== currentUsername && (
-                    <Popconfirm
-                      title="确定删除该用户？"
-                      onConfirm={() => handleDeleteUser(record.id)}
-                    >
-                      <Button size="small" danger>删除</Button>
-                    </Popconfirm>
-                  )}
-                </Space>
-              ),
-            },
-          ]}
-        />
-      </Card>
+            ),
+            children: (
+              <Table
+                dataSource={users}
+                rowKey="id"
+                loading={usersLoading}
+                pagination={false}
+                columns={[
+                  { title: '用户名', dataIndex: 'username', key: 'username' },
+                  {
+                    title: '创建时间',
+                    dataIndex: 'createdAt',
+                    key: 'createdAt',
+                    render: (v: string) => new Date(v).toLocaleString(),
+                  },
+                  {
+                    title: '操作',
+                    key: 'action',
+                    render: (_: unknown, record: User) => (
+                      <Space>
+                        <Button size="small" onClick={() => { setEditingUser(record); setPwdModalOpen(true); }}>
+                          修改密码
+                        </Button>
+                        {record.username !== currentUsername && (
+                          <Popconfirm title="确定删除该用户？" onConfirm={() => handleDeleteUser(record.id)}>
+                            <Button size="small" danger>删除</Button>
+                          </Popconfirm>
+                        )}
+                      </Space>
+                    ),
+                  },
+                ]}
+              />
+            ),
+          },
+        ]}
+      />
 
       <Modal
         title="添加用户"
