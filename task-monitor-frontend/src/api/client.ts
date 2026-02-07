@@ -35,9 +35,10 @@ apiClient.interceptors.response.use(
   (error) => {
     // 统一错误处理
     if (error.response?.status === 401) {
-      // 未授权，跳转到登录页
-      console.error('Unauthorized, redirecting to login...');
-      // window.location.href = '/login';
+      localStorage.removeItem('token');
+      localStorage.removeItem('username');
+      window.location.href = '/login';
+      return Promise.reject(error);
     }
 
     const errorMessage = error.response?.data?.message || error.message || '请求失败';

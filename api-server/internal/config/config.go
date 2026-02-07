@@ -14,15 +14,22 @@ type Config struct {
 	Redis    RedisConfig    `yaml:"redis"`
 	Log      LogConfig      `yaml:"log"`
 	LLM      LLMConfig      `yaml:"llm"`
+	JWT      JWTConfig      `yaml:"jwt"`
+}
+
+// JWTConfig JWT认证配置
+type JWTConfig struct {
+	Secret     string `yaml:"secret"`
+	ExpireHour int    `yaml:"expire_hour"`
 }
 
 // LLMConfig LLM服务配置
 type LLMConfig struct {
-	Enabled  bool   `yaml:"enabled"`
-	Endpoint string `yaml:"endpoint"`  // OpenAI 兼容接口地址
-	APIKey   string `yaml:"api_key"`
-	Model    string `yaml:"model"`     // 模型名称
-	Timeout  int    `yaml:"timeout"`   // 超时秒数，默认60
+	Enabled  bool   `yaml:"enabled" json:"enabled"`
+	Endpoint string `yaml:"endpoint" json:"endpoint"`
+	APIKey   string `yaml:"api_key" json:"api_key"`
+	Model    string `yaml:"model" json:"model"`
+	Timeout  int    `yaml:"timeout" json:"timeout"`
 }
 
 // ServerConfig 服务器配置
@@ -70,6 +77,18 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+// SaveConfig 将配置写回YAML文件
+func SaveConfig(path string, cfg *Config) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+	return nil
 }
 
 // GetDSN 获取数据库连接字符串

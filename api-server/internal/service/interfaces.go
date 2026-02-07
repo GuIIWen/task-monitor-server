@@ -1,6 +1,9 @@
 package service
 
-import "github.com/task-monitor/api-server/internal/model"
+import (
+	"github.com/task-monitor/api-server/internal/config"
+	"github.com/task-monitor/api-server/internal/model"
+)
 
 // NodeServiceInterface defines the interface for node service operations
 type NodeServiceInterface interface {
@@ -74,6 +77,8 @@ type JobAnalysisResponse struct {
 // LLMServiceInterface LLM服务接口
 type LLMServiceInterface interface {
 	AnalyzeJob(jobID string) (*JobAnalysisResponse, error)
+	GetConfig() config.LLMConfig
+	UpdateConfig(cfg config.LLMConfig)
 }
 
 // JobServiceInterface defines the interface for job service operations
@@ -89,4 +94,15 @@ type JobServiceInterface interface {
 	GetJobParameters(jobID string) ([]model.Parameter, error)
 	GetJobCode(jobID string) ([]model.Code, error)
 	GetJobStats() (map[string]int64, error)
+}
+
+// AuthServiceInterface 认证服务接口
+type AuthServiceInterface interface {
+	Login(username, password string) (string, error)
+	ParseToken(tokenString string) (uint, string, error)
+	GetUserByID(id uint) (*model.User, error)
+	ListUsers() ([]model.User, error)
+	CreateUser(username, password string) (*model.User, error)
+	ChangePassword(userID uint, newPassword string) error
+	DeleteUser(userID uint, currentUserID uint) error
 }

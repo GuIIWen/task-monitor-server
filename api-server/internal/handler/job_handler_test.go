@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/task-monitor/api-server/internal/config"
 	"github.com/task-monitor/api-server/internal/model"
 	"github.com/task-monitor/api-server/internal/service"
 	"gorm.io/gorm"
@@ -367,6 +368,15 @@ func (m *MockLLMService) AnalyzeJob(jobID string) (*service.JobAnalysisResponse,
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*service.JobAnalysisResponse), args.Error(1)
+}
+
+func (m *MockLLMService) GetConfig() config.LLMConfig {
+	args := m.Called()
+	return args.Get(0).(config.LLMConfig)
+}
+
+func (m *MockLLMService) UpdateConfig(cfg config.LLMConfig) {
+	m.Called(cfg)
 }
 
 func TestJobHandler_AnalyzeJob_Success(t *testing.T) {

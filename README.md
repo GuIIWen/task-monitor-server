@@ -88,6 +88,12 @@ go build -o bin/api-server ./cmd/api-server
 
 服务将在 `http://localhost:8080` 启动。
 
+系统首次启动时会自动创建默认管理员账户：
+- 用户名: `admin`
+- 密码: `admin123`
+
+建议首次登录后立即修改默认密码。
+
 ### 5. 运行测试
 
 ```bash
@@ -122,6 +128,10 @@ database:
   max_idle_conns: 10
   max_open_conns: 100
 
+jwt:
+  secret: "your-jwt-secret-key"           # JWT签名密钥（生产环境请修改）
+  expire_hour: 24                         # Token过期时间（小时）
+
 llm:
   enabled: false                          # 是否启用LLM分析功能
   endpoint: "http://localhost:8000/v1"    # OpenAI兼容接口地址
@@ -132,7 +142,17 @@ llm:
 
 ## API接口
 
-API Server提供以下RESTful接口：
+API Server提供以下RESTful接口，除登录接口外，所有接口均需要JWT认证（在请求头中携带 `Authorization: Bearer <token>`）。
+
+### 认证相关
+- `POST /api/v1/auth/login` - 用户登录（公开接口，无需认证）
+- `GET /api/v1/auth/me` - 获取当前用户信息
+
+### 用户管理
+- `GET /api/v1/users` - 获取用户列表
+- `POST /api/v1/users` - 创建用户
+- `PUT /api/v1/users/:id/password` - 修改用户密码
+- `DELETE /api/v1/users/:id` - 删除用户（不能删除自己）
 
 ### 节点相关
 - `GET /api/v1/nodes` - 获取节点列表
@@ -189,6 +209,7 @@ API Server采用分层架构：
 - **Repository测试**: 使用sqlmock模拟数据库操作
 - **Service测试**: 使用mock接口测试业务逻辑
 - **Handler测试**: 使用httptest测试HTTP接口
+- **Middleware测试**: 测试JWT认证中间件
 
 运行测试：
 ```bash
@@ -199,6 +220,7 @@ go test ./...
 go test ./internal/repository/ -v
 go test ./internal/service/ -v
 go test ./internal/handler/ -v
+go test ./internal/middleware/ -v
 
 # 查看测试覆盖率
 go test ./... -cover

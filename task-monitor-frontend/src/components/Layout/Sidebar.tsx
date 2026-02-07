@@ -5,6 +5,7 @@ import {
   DashboardOutlined,
   ClusterOutlined,
   AppstoreOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 
 const { Sider } = Layout;
@@ -28,6 +29,11 @@ const Sidebar: React.FC = () => {
       key: '/jobs',
       icon: <AppstoreOutlined />,
       label: '作业管理',
+    },
+    {
+      key: '/settings',
+      icon: <SettingOutlined />,
+      label: '系统设置',
     },
   ];
 

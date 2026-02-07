@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/task-monitor/api-server/internal/config"
@@ -17,6 +18,7 @@ type LLMService struct {
 	jobService JobServiceInterface
 	httpClient *http.Client
 	config     config.LLMConfig
+	mu         sync.RWMutex
 }
 
 // NewLLMService 创建LLM服务
@@ -30,6 +32,31 @@ func NewLLMService(jobService JobServiceInterface, cfg config.LLMConfig) *LLMSer
 		httpClient: &http.Client{Timeout: time.Duration(timeout) * time.Second},
 		config:     cfg,
 	}
+}
+
+// GetConfig 获取当前LLM配置（API Key脱敏）
+func (s *LLMService) GetConfig() config.LLMConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	cfg := s.config
+	if len(cfg.APIKey) > 4 {
+		cfg.APIKey = "****" + cfg.APIKey[len(cfg.APIKey)-4:]
+	} else if cfg.APIKey != "" {
+		cfg.APIKey = "****"
+	}
+	return cfg
+}
+
+// UpdateConfig 更新LLM配置
+func (s *LLMService) UpdateConfig(cfg config.LLMConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.config = cfg
+	timeout := cfg.Timeout
+	if timeout <= 0 {
+		timeout = 60
+	}
+	s.httpClient = &http.Client{Timeout: time.Duration(timeout) * time.Second}
 }
 
 // chatMessage OpenAI chat message
@@ -56,7 +83,10 @@ type chatResponse struct {
 
 // AnalyzeJob 分析作业
 func (s *LLMService) AnalyzeJob(jobID string) (*JobAnalysisResponse, error) {
-	if !s.config.Enabled {
+	s.mu.RLock()
+	enabled := s.config.Enabled
+	s.mu.RUnlock()
+	if !enabled {
 		return nil, fmt.Errorf("LLM service is not enabled")
 	}
 
@@ -205,8 +235,12 @@ func (s *LLMService) buildUserPrompt(jobID string) (string, error) {
 
 // callLLM 调用OpenAI兼容接口
 func (s *LLMService) callLLM(sysPrompt, userPrompt string) (string, error) {
+	s.mu.RLock()
+	cfg := s.config
+	s.mu.RUnlock()
+
 	reqBody := chatRequest{
-		Model: s.config.Model,
+		Model: cfg.Model,
 		Messages: []chatMessage{
 			{Role: "system", Content: sysPrompt},
 			{Role: "user", Content: userPrompt},
@@ -219,14 +253,14 @@ func (s *LLMService) callLLM(sysPrompt, userPrompt string) (string, error) {
 		return "", fmt.Errorf("marshal request: %w", err)
 	}
 
-	endpoint := strings.TrimRight(s.config.Endpoint, "/") + "/chat/completions"
+	endpoint := strings.TrimRight(cfg.Endpoint, "/") + "/chat/completions"
 	req, err := http.NewRequest("POST", endpoint, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if s.config.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+s.config.APIKey)
+	if cfg.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 	}
 
 	resp, err := s.httpClient.Do(req)

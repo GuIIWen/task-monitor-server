@@ -25,6 +25,7 @@ Thumbs.db
 # Build artifacts
 dist/
 build/
+api-server/api-server
 
 # Temporary files
 *.tmp

@@ -5,9 +5,12 @@ import (
 	"log"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"github.com/task-monitor/api-server/internal/model"
 )
 
 // InitDB 初始化数据库连接
@@ -43,4 +46,29 @@ func InitDB(cfg *DatabaseConfig) (*gorm.DB, error) {
 
 	log.Println("Database connected successfully")
 	return db, nil
+}
+
+// AutoMigrateAndSeed 自动建表并创建默认用户
+func AutoMigrateAndSeed(db *gorm.DB) error {
+	if err := db.AutoMigrate(&model.User{}); err != nil {
+		return fmt.Errorf("failed to migrate users table: %w", err)
+	}
+
+	var count int64
+	db.Model(&model.User{}).Count(&count)
+	if count == 0 {
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
+		if err != nil {
+			return fmt.Errorf("failed to hash default password: %w", err)
+		}
+		defaultAdmin := model.User{
+			Username: "admin",
+			Password: string(hashedPassword),
+		}
+		if err := db.Create(&defaultAdmin).Error; err != nil {
+			return fmt.Errorf("failed to create default admin: %w", err)
+		}
+		log.Println("Default admin user created (admin/admin123)")
+	}
+	return nil
 }

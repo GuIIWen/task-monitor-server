@@ -265,6 +265,66 @@ func TestFilterSensitiveEnvVars(t *testing.T) {
 	assert.NotContains(t, result, "secret123")
 }
 
+func TestLLMService_GetConfig_MasksAPIKey(t *testing.T) {
+	mockJobSvc := new(MockJobServiceForLLM)
+	cfg := config.LLMConfig{
+		Enabled:  true,
+		Endpoint: "http://localhost:8000/v1",
+		APIKey:   "sk-abcdef123456",
+		Model:    "qwen2.5",
+		Timeout:  60,
+	}
+	svc := NewLLMService(mockJobSvc, cfg)
+
+	result := svc.GetConfig()
+	assert.Equal(t, "****3456", result.APIKey)
+	assert.Equal(t, true, result.Enabled)
+	assert.Equal(t, "qwen2.5", result.Model)
+}
+
+func TestLLMService_GetConfig_ShortAPIKey(t *testing.T) {
+	mockJobSvc := new(MockJobServiceForLLM)
+	cfg := config.LLMConfig{APIKey: "ab"}
+	svc := NewLLMService(mockJobSvc, cfg)
+
+	result := svc.GetConfig()
+	assert.Equal(t, "****", result.APIKey)
+}
+
+func TestLLMService_GetConfig_EmptyAPIKey(t *testing.T) {
+	mockJobSvc := new(MockJobServiceForLLM)
+	cfg := config.LLMConfig{APIKey: ""}
+	svc := NewLLMService(mockJobSvc, cfg)
+
+	result := svc.GetConfig()
+	assert.Equal(t, "", result.APIKey)
+}
+
+func TestLLMService_UpdateConfig(t *testing.T) {
+	mockJobSvc := new(MockJobServiceForLLM)
+	cfg := config.LLMConfig{
+		Enabled: false,
+		Model:   "old-model",
+		Timeout: 30,
+	}
+	svc := NewLLMService(mockJobSvc, cfg)
+
+	newCfg := config.LLMConfig{
+		Enabled:  true,
+		Endpoint: "http://new:8000/v1",
+		APIKey:   "new-key",
+		Model:    "new-model",
+		Timeout:  120,
+	}
+	svc.UpdateConfig(newCfg)
+
+	result := svc.GetConfig()
+	assert.Equal(t, true, result.Enabled)
+	assert.Equal(t, "http://new:8000/v1", result.Endpoint)
+	assert.Equal(t, "new-model", result.Model)
+	assert.Equal(t, 120, result.Timeout)
+}
+
 // setupMockJobData 设置mock作业数据
 func setupMockJobData(mockJobSvc *MockJobServiceForLLM, jobID string) {
 	nodeID := "node-001"

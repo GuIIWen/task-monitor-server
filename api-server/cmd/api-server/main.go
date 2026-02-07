@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/task-monitor/api-server/internal/config"
 	"github.com/task-monitor/api-server/internal/handler"
+	"github.com/task-monitor/api-server/internal/middleware"
 	"github.com/task-monitor/api-server/internal/repository"
 	"github.com/task-monitor/api-server/internal/service"
 )
@@ -38,27 +39,35 @@ func main() {
 		log.Fatalf("Failed to init database: %v", err)
 	}
 
+	// 自动建表并创建默认用户
+	if err := config.AutoMigrateAndSeed(db); err != nil {
+		log.Fatalf("Failed to migrate and seed: %v", err)
+	}
+
 	// 初始化Repository
 	nodeRepo := repository.NewNodeRepository(db)
 	jobRepo := repository.NewJobRepository(db)
 	paramRepo := repository.NewParameterRepository(db)
 	codeRepo := repository.NewCodeRepository(db)
 	metricsRepo := repository.NewMetricsRepository(db)
+	userRepo := repository.NewUserRepository(db)
 
 	// 初始化Service
 	nodeService := service.NewNodeService(nodeRepo)
 	jobService := service.NewJobService(jobRepo, paramRepo, codeRepo, metricsRepo)
+	authService := service.NewAuthService(userRepo, cfg.JWT.Secret, cfg.JWT.ExpireHour)
 
-	// 初始化LLM Service
-	var llmService service.LLMServiceInterface
+	// 初始化LLM Service（始终创建，可通过页面启用/禁用）
+	llmService := service.NewLLMService(jobService, cfg.LLM)
 	if cfg.LLM.Enabled {
-		llmService = service.NewLLMService(jobService, cfg.LLM)
 		log.Println("LLM service enabled")
 	}
 
 	// 初始化Handler
 	nodeHandler := handler.NewNodeHandler(nodeService)
 	jobHandler := handler.NewJobHandler(jobService, llmService)
+	configHandler := handler.NewConfigHandler(llmService, cfg, *configPath)
+	authHandler := handler.NewAuthHandler(authService)
 
 	// 设置Gin模式
 	gin.SetMode(cfg.Server.Mode)
@@ -76,6 +85,27 @@ func main() {
 	// API路由组
 	api := r.Group("/api/v1")
 	{
+		// 公开路由（不需要认证）
+		auth := api.Group("/auth")
+		{
+			auth.POST("/login", authHandler.Login)
+		}
+
+		// 需要认证的路由
+		api.Use(middleware.JWTAuth(authService))
+
+		// 当前用户
+		api.GET("/auth/me", authHandler.GetCurrentUser)
+
+		// 用户管理
+		users := api.Group("/users")
+		{
+			users.GET("", authHandler.ListUsers)
+			users.POST("", authHandler.CreateUser)
+			users.PUT("/:id/password", authHandler.ChangePassword)
+			users.DELETE("/:id", authHandler.DeleteUser)
+		}
+
 		// 节点相关路由
 		nodes := api.Group("/nodes")
 		{
@@ -95,6 +125,13 @@ func main() {
 			jobs.GET("/:jobId/parameters", jobHandler.GetJobParameters)
 			jobs.GET("/:jobId/code", jobHandler.GetJobCode)
 			jobs.POST("/:jobId/analyze", jobHandler.AnalyzeJob)
+		}
+
+		// 配置相关路由
+		cfgGroup := api.Group("/config")
+		{
+			cfgGroup.GET("/llm", configHandler.GetLLMConfig)
+			cfgGroup.PUT("/llm", configHandler.UpdateLLMConfig)
 		}
 	}
 

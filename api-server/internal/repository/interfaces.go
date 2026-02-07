@@ -48,3 +48,14 @@ type MetricsRepositoryInterface interface {
 	// FindLatestNPUMetrics 查询指定卡号的最新 NPU 指标
 	FindLatestNPUMetrics(nodeID string, npuIDs []int) ([]model.NPUMetric, error)
 }
+
+// UserRepositoryInterface defines the interface for user repository operations
+type UserRepositoryInterface interface {
+	FindByID(id uint) (*model.User, error)
+	FindByUsername(username string) (*model.User, error)
+	FindAll() ([]model.User, error)
+	Create(user *model.User) error
+	Update(user *model.User) error
+	Delete(id uint) error
+	Count() (int64, error)
+}
