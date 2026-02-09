@@ -150,6 +150,11 @@ func (m *MockMetricsRepository) FindNPUProcessesByPID(nodeID string, pid int64) 
 	return args.Get(0).([]model.NPUProcess), args.Error(1)
 }
 
+func (m *MockMetricsRepository) FindNPUProcessesByPIDs(nodeID string, pids []int64) ([]model.NPUProcess, error) {
+	args := m.Called(nodeID, pids)
+	return args.Get(0).([]model.NPUProcess), args.Error(1)
+}
+
 func (m *MockMetricsRepository) FindLatestNPUMetrics(nodeID string, npuIDs []int) ([]model.NPUMetric, error) {
 	args := m.Called(nodeID, npuIDs)
 	return args.Get(0).([]model.NPUMetric), args.Error(1)

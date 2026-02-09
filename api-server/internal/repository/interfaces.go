@@ -45,6 +45,8 @@ type MetricsRepositoryInterface interface {
 	DistinctNPUCardCounts() ([]int, error)
 	// FindNPUProcessesByPID 查询单个进程占用的所有 NPU 记录
 	FindNPUProcessesByPID(nodeID string, pid int64) ([]model.NPUProcess, error)
+	// FindNPUProcessesByPIDs 批量查询多个进程占用的所有 NPU 记录
+	FindNPUProcessesByPIDs(nodeID string, pids []int64) ([]model.NPUProcess, error)
 	// FindLatestNPUMetrics 查询指定卡号的最新 NPU 指标
 	FindLatestNPUMetrics(nodeID string, npuIDs []int) ([]model.NPUMetric, error)
 }

@@ -61,6 +61,25 @@ func (s *JobService) GetJobDetail(jobID string) (*JobDetailResponse, error) {
 		return resp, nil // NPU 查询失败不影响基本信息
 	}
 
+	// 1.1 主进程无 NPU 记录时，尝试聚合同组子进程的 NPU 数据
+	if len(npuProcs) == 0 && job.PGID != nil {
+		relatedJobs, err := s.jobRepo.FindByNodeIDAndPGID(nodeID, *job.PGID)
+		if err == nil && len(relatedJobs) > 0 {
+			var childPIDs []int64
+			for _, rj := range relatedJobs {
+				if rj.PID != nil && *rj.PID != pid {
+					childPIDs = append(childPIDs, *rj.PID)
+				}
+			}
+			if len(childPIDs) > 0 {
+				childProcs, err := s.metricsRepo.FindNPUProcessesByPIDs(nodeID, childPIDs)
+				if err == nil {
+					npuProcs = childProcs
+				}
+			}
+		}
+	}
+
 	// 2. 按 npu_id 去重（取最大显存占用），避免历史/重复记录导致返回重复卡
 	cardMemory := make(map[int]float64)
 	for _, np := range npuProcs {

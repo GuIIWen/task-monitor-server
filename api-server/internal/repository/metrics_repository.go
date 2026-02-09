@@ -87,6 +87,16 @@ func (r *MetricsRepository) FindNPUProcessesByPID(nodeID string, pid int64) ([]m
 	return processes, err
 }
 
+// FindNPUProcessesByPIDs 批量查询多个进程占用的所有 NPU 记录
+func (r *MetricsRepository) FindNPUProcessesByPIDs(nodeID string, pids []int64) ([]model.NPUProcess, error) {
+	if len(pids) == 0 {
+		return []model.NPUProcess{}, nil
+	}
+	var processes []model.NPUProcess
+	err := r.db.Where("node_id = ? AND pid IN ? AND status = ?", nodeID, pids, "running").Find(&processes).Error
+	return processes, err
+}
+
 // FindLatestNPUMetrics 查询指定卡号的最新 NPU 指标
 func (r *MetricsRepository) FindLatestNPUMetrics(nodeID string, npuIDs []int) ([]model.NPUMetric, error) {
 	if len(npuIDs) == 0 {
