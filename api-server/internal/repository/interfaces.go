@@ -51,6 +51,12 @@ type MetricsRepositoryInterface interface {
 	FindLatestNPUMetrics(nodeID string, npuIDs []int) ([]model.NPUMetric, error)
 }
 
+// JobAnalysisRepositoryInterface defines the interface for job analysis repository operations
+type JobAnalysisRepositoryInterface interface {
+	FindByJobID(jobID string) (*model.JobAnalysis, error)
+	Upsert(analysis *model.JobAnalysis) error
+}
+
 // UserRepositoryInterface defines the interface for user repository operations
 type UserRepositoryInterface interface {
 	FindByID(id uint) (*model.User, error)

@@ -60,4 +60,11 @@ export const jobApi = {
   analyzeJob: async (jobId: string): Promise<JobAnalysis> => {
     return apiClient.post(`/jobs/${jobId}/analyze`, null, { timeout: 180000 });
   },
+
+  /**
+   * 获取已保存的AI分析结果
+   */
+  getJobAnalysis: async (jobId: string): Promise<JobAnalysis | null> => {
+    return apiClient.get(`/jobs/${jobId}/analysis`);
+  },
 };

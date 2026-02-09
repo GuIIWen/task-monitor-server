@@ -58,7 +58,8 @@ func main() {
 	authService := service.NewAuthService(userRepo, cfg.JWT.Secret, cfg.JWT.ExpireHour)
 
 	// 初始化LLM Service（始终创建，可通过页面启用/禁用）
-	llmService := service.NewLLMService(jobService, cfg.LLM)
+	jobAnalysisRepo := repository.NewJobAnalysisRepository(db)
+	llmService := service.NewLLMService(jobService, jobAnalysisRepo, cfg.LLM)
 	if cfg.LLM.Enabled {
 		log.Println("LLM service enabled")
 	}
@@ -125,6 +126,7 @@ func main() {
 			jobs.GET("/:jobId/parameters", jobHandler.GetJobParameters)
 			jobs.GET("/:jobId/code", jobHandler.GetJobCode)
 			jobs.POST("/:jobId/analyze", jobHandler.AnalyzeJob)
+			jobs.GET("/:jobId/analysis", jobHandler.GetJobAnalysis)
 		}
 
 		// 配置相关路由

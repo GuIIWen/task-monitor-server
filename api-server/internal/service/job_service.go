@@ -281,15 +281,21 @@ func (s *JobService) findRelatedNPUJobs(job *model.Job) []model.Job {
 	return related
 }
 
-// GetJobStats 获取作业统计信息
+// GetJobStats 获取作业统计信息（按分组统计，与作业管理页一致）
 func (s *JobService) GetJobStats() (map[string]int64, error) {
 	jobs, err := s.jobRepo.FindAll()
 	if err != nil {
 		return nil, err
 	}
 
+	groups, err := s.buildGroupedJobs(jobs)
+	if err != nil {
+		return nil, err
+	}
+	groups = filterStopNameGroups(groups)
+
 	stats := map[string]int64{
-		"total":     int64(len(jobs)),
+		"total":     int64(len(groups)),
 		"running":   0,
 		"completed": 0,
 		"failed":    0,
@@ -297,9 +303,9 @@ func (s *JobService) GetJobStats() (map[string]int64, error) {
 		"lost":      0,
 	}
 
-	for _, job := range jobs {
-		if job.Status != nil {
-			switch *job.Status {
+	for _, group := range groups {
+		if group.MainJob.Status != nil {
+			switch *group.MainJob.Status {
 			case "running":
 				stats["running"]++
 			case "completed":

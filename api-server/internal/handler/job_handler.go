@@ -203,3 +203,21 @@ func (h *JobHandler) AnalyzeJob(c *gin.Context) {
 
 	utils.SuccessResponse(c, result)
 }
+
+// GetJobAnalysis 获取已保存的AI分析结果
+func (h *JobHandler) GetJobAnalysis(c *gin.Context) {
+	if h.llmService == nil {
+		utils.ErrorResponse(c, 501, "LLM service is not configured")
+		return
+	}
+
+	jobID := c.Param("jobId")
+
+	result, err := h.llmService.GetAnalysis(jobID)
+	if err != nil {
+		utils.ErrorResponse(c, 500, "Failed to get analysis: "+err.Error())
+		return
+	}
+
+	utils.SuccessResponse(c, result)
+}

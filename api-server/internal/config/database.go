@@ -50,8 +50,8 @@ func InitDB(cfg *DatabaseConfig) (*gorm.DB, error) {
 
 // AutoMigrateAndSeed 自动建表并创建默认用户
 func AutoMigrateAndSeed(db *gorm.DB) error {
-	if err := db.AutoMigrate(&model.User{}); err != nil {
-		return fmt.Errorf("failed to migrate users table: %w", err)
+	if err := db.AutoMigrate(&model.User{}, &model.JobAnalysis{}); err != nil {
+		return fmt.Errorf("failed to migrate tables: %w", err)
 	}
 
 	var count int64

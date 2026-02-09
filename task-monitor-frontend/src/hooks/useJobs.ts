@@ -80,3 +80,14 @@ export const useDistinctCardCounts = () => {
     refetchInterval: REFRESH_INTERVAL,
   });
 };
+
+/**
+ * 获取已保存的AI分析结果
+ */
+export const useJobAnalysis = (jobId: string) => {
+  return useQuery({
+    queryKey: ['jobAnalysis', jobId],
+    queryFn: () => jobApi.getJobAnalysis(jobId),
+    enabled: !!jobId,
+  });
+};

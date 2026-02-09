@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
-import { Table, Space, Button, Tag } from 'antd';
+import React, { useState, useRef, useCallback } from 'react';
+import { Table, Space, Button, Tag, Modal, notification, Progress } from 'antd';
+import { CheckCircleOutlined, WarningOutlined, LoadingOutlined } from '@ant-design/icons';
 import type { TablePaginationConfig, SorterResult, FilterValue } from 'antd/es/table/interface';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { StatusBadge } from '@/components/Common';
 import { useGroupedJobs, useDistinctCardCounts } from '@/hooks/useJobs';
 import { useNodes } from '@/hooks/useNodes';
+import { jobApi } from '@/api/job';
 import { formatTimestamp, JOB_TYPE_MAP } from '@/utils';
 import type { Job, JobListParams, JobGroup } from '@/types/job';
 
@@ -36,6 +38,11 @@ const JobList: React.FC = () => {
       cardCount: cardCount.length > 0 ? cardCount : undefined,
     };
   });
+
+  const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
+  const analyzingRef = useRef(false);
+
+  const NOTIFY_KEY = 'batch-analyze';
 
   const { data, isLoading } = useGroupedJobs(params);
   const { data: nodesData } = useNodes();
@@ -120,6 +127,83 @@ const JobList: React.FC = () => {
     }
 
     setSearchParams(newSearchParams);
+  };
+
+  const updateNotification = useCallback((current: number, total: number, success: number, failed: number) => {
+    const percent = Math.round((current / total) * 100);
+    notification.open({
+      key: NOTIFY_KEY,
+      message: '批量分析进行中',
+      description: (
+        <div>
+          <Progress percent={percent} size="small" status="active" />
+          <div style={{ marginTop: 8, color: '#666', fontSize: 13 }}>
+            进度 {current}/{total}，成功 {success}，失败 {failed}
+          </div>
+        </div>
+      ),
+      icon: <LoadingOutlined style={{ color: '#1890ff' }} />,
+      duration: 0,
+      placement: 'bottomRight',
+    });
+  }, []);
+
+  const showResultNotification = useCallback((total: number, success: number, failed: number) => {
+    const allSuccess = failed === 0;
+    notification.open({
+      key: NOTIFY_KEY,
+      message: allSuccess ? '批量分析完成' : '批量分析完成（部分失败）',
+      description: (
+        <div>
+          <Progress percent={100} size="small" status={allSuccess ? 'success' : 'exception'} />
+          <div style={{ marginTop: 8, fontSize: 13 }}>
+            共 {total} 个作业：{success} 个成功{failed > 0 ? `，${failed} 个失败` : ''}
+          </div>
+        </div>
+      ),
+      icon: allSuccess
+        ? <CheckCircleOutlined style={{ color: '#52c41a' }} />
+        : <WarningOutlined style={{ color: '#faad14' }} />,
+      duration: 6,
+      placement: 'bottomRight',
+    });
+  }, []);
+
+  const handleBatchAnalyze = () => {
+    if (analyzingRef.current) return;
+    const jobIds = [...selectedRowKeys];
+
+    Modal.confirm({
+      title: '批量分析确认',
+      content: `确定要对选中的 ${jobIds.length} 个作业进行 AI 分析吗？`,
+      okText: '确定',
+      cancelText: '取消',
+      onOk: () => {
+        analyzingRef.current = true;
+        setSelectedRowKeys([]);
+
+        const run = async () => {
+          let success = 0;
+          let failed = 0;
+          const total = jobIds.length;
+
+          for (let i = 0; i < total; i++) {
+            updateNotification(i, total, success, failed);
+            try {
+              await jobApi.analyzeJob(jobIds[i]);
+              success++;
+            } catch {
+              failed++;
+            }
+          }
+
+          analyzingRef.current = false;
+          showResultNotification(total, success, failed);
+        };
+
+        run();
+      },
+    });
   };
 
   const columns = [
@@ -271,13 +355,30 @@ const JobList: React.FC = () => {
   ];
 
   return (
-    <Table<JobGroup>
-      columns={columns}
-      dataSource={data?.items || []}
-      loading={isLoading}
-      rowKey={(record) => record.mainJob.jobId}
-      onChange={handleTableChange}
-      expandable={{
+    <div>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>
+          {selectedRowKeys.length > 0 ? `已选择 ${selectedRowKeys.length} 项` : ''}
+        </span>
+        <Button
+          type="primary"
+          disabled={selectedRowKeys.length === 0}
+          onClick={handleBatchAnalyze}
+        >
+          批量分析
+        </Button>
+      </div>
+      <Table<JobGroup>
+        columns={columns}
+        dataSource={data?.items || []}
+        loading={isLoading}
+        rowKey={(record) => record.mainJob.jobId}
+        rowSelection={{
+          selectedRowKeys,
+          onChange: (keys) => setSelectedRowKeys(keys as string[]),
+        }}
+        onChange={handleTableChange}
+        expandable={{
         expandedRowRender: (record) => (
           <Table<Job>
             columns={childColumns}
@@ -297,6 +398,7 @@ const JobList: React.FC = () => {
         showTotal: (total) => `共 ${total} 组`,
       }}
     />
+    </div>
   );
 };
 

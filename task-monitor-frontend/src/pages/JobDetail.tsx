@@ -3,8 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Collapse, Descriptions, Button, Space, Tag, Modal, Table, Progress, Typography, Spin, Alert, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { ArrowLeftOutlined, CodeOutlined, DownOutlined, RightOutlined, RobotOutlined } from '@ant-design/icons';
+import { useQueryClient } from '@tanstack/react-query';
 import { StatusBadge, LoadingSpinner } from '@/components/Common';
-import { useJob, useJobCode, useJobParameters } from '@/hooks';
+import { useJob, useJobCode, useJobParameters, useJobAnalysis } from '@/hooks';
 import { jobApi } from '@/api';
 import { formatTimestamp, JOB_TYPE_MAP } from '@/utils';
 import type { Job, NPUCardInfo, NPUMetricInfo, JobDetailResponse, JobAnalysis } from '@/types/job';
@@ -59,8 +60,11 @@ const JobDetail: React.FC = () => {
   const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>([]);
   const [childDetailMap, setChildDetailMap] = useState<Record<string, JobDetailResponse>>({});
   const [childLoadingMap, setChildLoadingMap] = useState<Record<string, boolean>>({});
-  const [analysisData, setAnalysisData] = useState<JobAnalysis | null>(null);
+  const queryClient = useQueryClient();
+  const { data: savedAnalysis } = useJobAnalysis(jobId!);
   const [analysisLoading, setAnalysisLoading] = useState(false);
+
+  const analysisData = savedAnalysis || null;
 
   const handleExpand = useCallback(async (expanded: boolean, record: Job) => {
     const key = record.jobId;
@@ -85,14 +89,14 @@ const JobDetail: React.FC = () => {
     if (!jobId) return;
     setAnalysisLoading(true);
     try {
-      const data = await jobApi.analyzeJob(jobId);
-      setAnalysisData(data);
+      await jobApi.analyzeJob(jobId);
+      queryClient.invalidateQueries({ queryKey: ['jobAnalysis', jobId] });
     } catch (e: any) {
       message.error(e?.message || 'AI 分析失败');
     } finally {
       setAnalysisLoading(false);
     }
-  }, [jobId]);
+  }, [jobId, queryClient]);
 
   if (isLoading) {
     return <LoadingSpinner />;
@@ -350,7 +354,6 @@ const JobDetail: React.FC = () => {
         </Card>
       ) : (
         <Collapse
-          defaultActiveKey={npuChipRows.length <= 4 ? ['npu'] : []}
           items={[{
             key: 'npu',
             label: `NPU 卡信息 (${npuCards.length} 张${npuChipRows.length > npuCards.length ? `，${npuChipRows.length} 个 Chip` : ''})`,
@@ -368,50 +371,56 @@ const JobDetail: React.FC = () => {
       )}
 
       {relatedJobs.length > 0 && (
-        <Card title={`关联 NPU 进程 (${relatedJobs.length})`}>
-          <Table<Job>
-            dataSource={relatedJobs}
-            rowKey="jobId"
-            pagination={false}
-            size="small"
-            bordered
-            columns={relatedJobColumns}
-            expandable={{
-              expandedRowKeys,
-              showExpandColumn: false,
-              expandedRowRender: (record) => {
-                const childDetail = childDetailMap[record.jobId];
-                const loading = childLoadingMap[record.jobId];
-                if (loading) {
-                  return <Spin size="small" style={{ padding: 16 }} />;
-                }
-                if (!childDetail) {
-                  return <Typography.Text type="secondary">加载失败</Typography.Text>;
-                }
-                const childCards = childDetail.npuCards || [];
-                const childChipRows = flattenNPUCards(childCards);
-                return (
-                  <div style={{ padding: '8px 0' }}>
-                    <Descriptions bordered size="small" column={2}>
-                      <Descriptions.Item label="PID">{childDetail.job.pid ?? '-'}</Descriptions.Item>
-                      <Descriptions.Item label="进程名称">{childDetail.job.processName ?? '-'}</Descriptions.Item>
-                    </Descriptions>
-                    {childChipRows.length > 0 && (
-                      <Table<NPUChipRow>
-                        dataSource={childChipRows}
-                        rowKey="key"
-                        pagination={false}
-                        size="small"
-                        columns={childNpuColumns}
-                        style={{ marginTop: 8 }}
-                      />
-                    )}
-                  </div>
-                );
-              },
-            }}
-          />
-        </Card>
+        <Collapse
+          items={[{
+            key: 'related',
+            label: `关联 NPU 进程 (${relatedJobs.length})`,
+            children: (
+              <Table<Job>
+                dataSource={relatedJobs}
+                rowKey="jobId"
+                pagination={false}
+                size="small"
+                bordered
+                columns={relatedJobColumns}
+                expandable={{
+                  expandedRowKeys,
+                  showExpandColumn: false,
+                  expandedRowRender: (record) => {
+                    const childDetail = childDetailMap[record.jobId];
+                    const loading = childLoadingMap[record.jobId];
+                    if (loading) {
+                      return <Spin size="small" style={{ padding: 16 }} />;
+                    }
+                    if (!childDetail) {
+                      return <Typography.Text type="secondary">加载失败</Typography.Text>;
+                    }
+                    const childCards = childDetail.npuCards || [];
+                    const childChipRows = flattenNPUCards(childCards);
+                    return (
+                      <div style={{ padding: '8px 0' }}>
+                        <Descriptions bordered size="small" column={2}>
+                          <Descriptions.Item label="PID">{childDetail.job.pid ?? '-'}</Descriptions.Item>
+                          <Descriptions.Item label="进程名称">{childDetail.job.processName ?? '-'}</Descriptions.Item>
+                        </Descriptions>
+                        {childChipRows.length > 0 && (
+                          <Table<NPUChipRow>
+                            dataSource={childChipRows}
+                            rowKey="key"
+                            pagination={false}
+                            size="small"
+                            columns={childNpuColumns}
+                            style={{ marginTop: 8 }}
+                          />
+                        )}
+                      </div>
+                    );
+                  },
+                }}
+              />
+            ),
+          }]}
+        />
       )}
 
       <Card
@@ -639,7 +648,7 @@ const JobDetail: React.FC = () => {
             const entries = Object.entries(envObj);
             if (entries.length === 0) return <Typography.Text type="secondary">暂无环境变量</Typography.Text>;
             return (
-              <pre style={{
+              <div style={{
                 background: '#f5f5f5',
                 padding: 16,
                 borderRadius: 4,
@@ -647,12 +656,17 @@ const JobDetail: React.FC = () => {
                 overflow: 'auto',
                 fontSize: 13,
                 lineHeight: 1.8,
+                fontFamily: 'monospace',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all',
               }}>
-                {entries.map(([k, v]) => `${k}=${v}`).join('\n')}
-              </pre>
+                {entries.map(([k, v], idx) => (
+                  <div key={idx}><span style={{ fontWeight: 600 }}>{k}</span>={v}</div>
+                ))}
+              </div>
             );
           } catch {
-            return <pre style={{ background: '#f5f5f5', padding: 16, maxHeight: 600, overflow: 'auto' }}>{envStr}</pre>;
+            return <pre style={{ background: '#f5f5f5', padding: 16, maxHeight: 600, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{envStr}</pre>;
           }
         })()}
       </Modal>

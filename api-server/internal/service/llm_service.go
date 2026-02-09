@@ -5,32 +5,37 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/task-monitor/api-server/internal/config"
+	"github.com/task-monitor/api-server/internal/model"
+	"github.com/task-monitor/api-server/internal/repository"
 )
 
 // LLMService LLM分析服务
 type LLMService struct {
-	jobService JobServiceInterface
-	httpClient *http.Client
-	config     config.LLMConfig
-	mu         sync.RWMutex
+	jobService   JobServiceInterface
+	analysisRepo repository.JobAnalysisRepositoryInterface
+	httpClient   *http.Client
+	config       config.LLMConfig
+	mu           sync.RWMutex
 }
 
 // NewLLMService 创建LLM服务
-func NewLLMService(jobService JobServiceInterface, cfg config.LLMConfig) *LLMService {
+func NewLLMService(jobService JobServiceInterface, analysisRepo repository.JobAnalysisRepositoryInterface, cfg config.LLMConfig) *LLMService {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = 60
 	}
 	return &LLMService{
-		jobService: jobService,
-		httpClient: &http.Client{Timeout: time.Duration(timeout) * time.Second},
-		config:     cfg,
+		jobService:   jobService,
+		analysisRepo: analysisRepo,
+		httpClient:   &http.Client{Timeout: time.Duration(timeout) * time.Second},
+		config:       cfg,
 	}
 }
 
@@ -57,6 +62,22 @@ func (s *LLMService) UpdateConfig(cfg config.LLMConfig) {
 		timeout = 60
 	}
 	s.httpClient = &http.Client{Timeout: time.Duration(timeout) * time.Second}
+}
+
+// GetAnalysis 获取已保存的分析结果
+func (s *LLMService) GetAnalysis(jobID string) (*JobAnalysisResponse, error) {
+	if s.analysisRepo == nil {
+		return nil, nil
+	}
+	analysis, err := s.analysisRepo.FindByJobID(jobID)
+	if err != nil {
+		return nil, nil
+	}
+	var result JobAnalysisResponse
+	if err := json.Unmarshal([]byte(analysis.Result), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse saved analysis: %w", err)
+	}
+	return &result, nil
 }
 
 // chatMessage OpenAI chat message
@@ -106,6 +127,19 @@ func (s *LLMService) AnalyzeJob(jobID string) (*JobAnalysisResponse, error) {
 	result, err := s.parseResponse(content)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse LLM response: %w", err)
+	}
+
+	// 4. 持久化分析结果
+	if s.analysisRepo != nil {
+		resultJSON, err := json.Marshal(result)
+		if err == nil {
+			if err := s.analysisRepo.Upsert(&model.JobAnalysis{
+				JobID:  jobID,
+				Result: string(resultJSON),
+			}); err != nil {
+				log.Printf("failed to save analysis result for job %s: %v", jobID, err)
+			}
+		}
 	}
 
 	return result, nil
@@ -493,6 +527,7 @@ const systemPrompt = `你是一个专业的 NPU（华为昇腾）作业分析助
 5. **资源评估**：AICore 使用率、HBM 使用、多卡均衡性、功耗与利用率匹配度。
 
 重要规则：
+- NPU 卡可能包含多个 Chip（如 Chip0、Chip1），功率（powerW）是整卡级别的指标，仅在 Chip0 上报告。Chip1 功率显示为 0W 是正常现象，不要将其作为问题或异常提出。
 - 信息不足时如实填 null，不要猜测或编造。modelInfo 整体可为 null。
 - parameterCheck.items 和 issues 可以为空数组 []，但不能为 null。
 - 如果缺少脚本、参数等关键信息，在 summary 中说明"因信息有限，部分分析可能不完整"。

@@ -100,6 +100,7 @@ type JobAnalysisResponse struct {
 // LLMServiceInterface LLM服务接口
 type LLMServiceInterface interface {
 	AnalyzeJob(jobID string) (*JobAnalysisResponse, error)
+	GetAnalysis(jobID string) (*JobAnalysisResponse, error)
 	GetConfig() config.LLMConfig
 	UpdateConfig(cfg config.LLMConfig)
 }
