@@ -83,7 +83,7 @@ func (r *MetricsRepository) DistinctNPUCardCounts() ([]int, error) {
 // FindNPUProcessesByPID 查询单个进程占用的所有 NPU 记录
 func (r *MetricsRepository) FindNPUProcessesByPID(nodeID string, pid int64) ([]model.NPUProcess, error) {
 	var processes []model.NPUProcess
-	err := r.db.Where("node_id = ? AND pid = ?", nodeID, pid).Find(&processes).Error
+	err := r.db.Where("node_id = ? AND pid = ? AND status = ?", nodeID, pid, "running").Find(&processes).Error
 	return processes, err
 }
 

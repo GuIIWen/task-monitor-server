@@ -1,7 +1,9 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -63,8 +65,44 @@ func (s *AuthService) ParseToken(tokenString string) (uint, string, error) {
 	if !ok {
 		return 0, "", errors.New("invalid claims")
 	}
-	userID := uint(claims["user_id"].(float64))
-	username := claims["username"].(string)
+
+	userIDRaw, ok := claims["user_id"]
+	if !ok {
+		return 0, "", errors.New("invalid claims")
+	}
+
+	var userID uint
+	switch v := userIDRaw.(type) {
+	case float64:
+		if v < 0 {
+			return 0, "", errors.New("invalid claims")
+		}
+		userID = uint(v)
+	case json.Number:
+		parsed, err := strconv.ParseUint(v.String(), 10, 64)
+		if err != nil {
+			return 0, "", errors.New("invalid claims")
+		}
+		userID = uint(parsed)
+	case string:
+		parsed, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return 0, "", errors.New("invalid claims")
+		}
+		userID = uint(parsed)
+	default:
+		return 0, "", errors.New("invalid claims")
+	}
+
+	usernameRaw, ok := claims["username"]
+	if !ok {
+		return 0, "", errors.New("invalid claims")
+	}
+	username, ok := usernameRaw.(string)
+	if !ok || username == "" {
+		return 0, "", errors.New("invalid claims")
+	}
+
 	return userID, username, nil
 }
 

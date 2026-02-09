@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/task-monitor/api-server/internal/model"
 	"github.com/task-monitor/api-server/internal/repository"
@@ -60,62 +61,56 @@ func (s *JobService) GetJobDetail(jobID string) (*JobDetailResponse, error) {
 		return resp, nil // NPU 查询失败不影响基本信息
 	}
 
-	// 2. 收集 npu_id，查卡详情
-	npuIDSet := make(map[int]bool)
-	for _, np := range npuProcs {
-		if np.NPUID != nil {
-			npuIDSet[*np.NPUID] = true
-		}
-	}
-
-	var npuIDs []int
-	for id := range npuIDSet {
-		npuIDs = append(npuIDs, id)
-	}
-
-	// metricMap 以 "npu_id:bus_id" 为 key，避免 Ascend910 多 Chip 同 npu_id 覆盖
-	type metricKey struct {
-		npuID int
-		busID string
-	}
-	metricMap := make(map[metricKey]*model.NPUMetric)
-	if len(npuIDs) > 0 {
-		metrics, err := s.metricsRepo.FindLatestNPUMetrics(nodeID, npuIDs)
-		if err == nil {
-			for i := range metrics {
-				if metrics[i].NPUID != nil {
-					busID := ""
-					if metrics[i].BusID != nil {
-						busID = *metrics[i].BusID
-					}
-					metricMap[metricKey{*metrics[i].NPUID, busID}] = &metrics[i]
-				}
-			}
-		}
-	}
-
-	// 3. 组装 NPUCardInfo — 按 npu_id 匹配，每个 npu_id 可能对应多条 metric（多 bus_id）
+	// 2. 按 npu_id 去重（取最大显存占用），避免历史/重复记录导致返回重复卡
+	cardMemory := make(map[int]float64)
 	for _, np := range npuProcs {
 		if np.NPUID == nil {
 			continue
 		}
-		info := NPUCardInfo{
-			NpuID: *np.NPUID,
-		}
-		if np.MemoryUsageMB != nil {
-			info.MemoryUsageMB = *np.MemoryUsageMB
-		}
-		// 查找该 npu_id 对应的 metric（优先精确匹配，否则取任意一条）
-		for k, m := range metricMap {
-			if k.npuID == *np.NPUID {
-				info.Metric = m
-				break
+		npuID := *np.NPUID
+		if np.MemoryUsageMB == nil {
+			if _, ok := cardMemory[npuID]; !ok {
+				cardMemory[npuID] = 0
 			}
+			continue
 		}
-		resp.NPUCards = append(resp.NPUCards, info)
+		if prev, ok := cardMemory[npuID]; !ok || *np.MemoryUsageMB > prev {
+			cardMemory[npuID] = *np.MemoryUsageMB
+		}
 	}
 
-	// 4. 查关联 NPU 进程（同 pgid 范围内 Union-Find）
+	if len(cardMemory) > 0 {
+		npuIDs := make([]int, 0, len(cardMemory))
+		for id := range cardMemory {
+			npuIDs = append(npuIDs, id)
+		}
+		sort.Ints(npuIDs)
+
+		// 3. 查询卡详情并按 npu_id 建立映射
+		metricByNPU := make(map[int]*model.NPUMetric)
+		metrics, err := s.metricsRepo.FindLatestNPUMetrics(nodeID, npuIDs)
+		if err == nil {
+			for i := range metrics {
+				if metrics[i].NPUID != nil {
+					// 同一 npu_id 可能有多条（如多 bus_id），保留首条即可
+					if _, ok := metricByNPU[*metrics[i].NPUID]; !ok {
+						metricByNPU[*metrics[i].NPUID] = &metrics[i]
+					}
+				}
+			}
+		}
+
+		// 4. 组装 NPUCardInfo（按 npu_id 有序输出）
+		for _, npuID := range npuIDs {
+			resp.NPUCards = append(resp.NPUCards, NPUCardInfo{
+				NpuID:         npuID,
+				MemoryUsageMB: cardMemory[npuID],
+				Metric:        metricByNPU[npuID],
+			})
+		}
+	}
+
+	// 5. 查关联 NPU 进程（同 pgid 范围内 Union-Find）
 	if job.PGID != nil {
 		resp.RelatedJobs = s.findRelatedNPUJobs(job)
 	}
@@ -178,7 +173,6 @@ func (s *JobService) findRelatedNPUJobs(job *model.Job) []model.Job {
 	}
 	nodeID := *job.NodeID
 	pgid := *job.PGID
-	selfPID := *job.PID
 
 	// 查同 pgid 的所有 jobs
 	samePGIDJobs, err := s.jobRepo.FindByNodeIDAndPGID(nodeID, pgid)
@@ -186,56 +180,65 @@ func (s *JobService) findRelatedNPUJobs(job *model.Job) []model.Job {
 		return nil
 	}
 
-	// Union-Find 分组
-	parent := make(map[int64]int64)
-	pidIndex := make(map[int64]int)
-	for i, j := range samePGIDJobs {
-		if j.PID == nil {
-			continue
-		}
-		pid := *j.PID
-		parent[pid] = pid
-		pidIndex[pid] = i
+	parent := make([]int, len(samePGIDJobs))
+	for i := range samePGIDJobs {
+		parent[i] = i
 	}
 
-	var find func(int64) int64
-	find = func(pid int64) int64 {
-		if parent[pid] != pid {
-			parent[pid] = find(parent[pid])
+	var find func(int) int
+	find = func(i int) int {
+		if parent[i] != i {
+			parent[i] = find(parent[i])
 		}
-		return parent[pid]
+		return parent[i]
 	}
 
-	for _, j := range samePGIDJobs {
-		if j.PID == nil || j.PPID == nil {
-			continue
-		}
-		ppid := *j.PPID
-		if _, exists := parent[ppid]; !exists {
-			continue
-		}
-		ppidIdx := pidIndex[ppid]
-		parentJob := samePGIDJobs[ppidIdx]
-		if parentJob.ProcessName != nil && ppidStopNames[*parentJob.ProcessName] {
-			continue
-		}
-		rootA := find(*j.PID)
-		rootB := find(ppid)
+	union := func(a, b int) {
+		rootA := find(a)
+		rootB := find(b)
 		if rootA != rootB {
 			parent[rootA] = rootB
 		}
 	}
 
-	// 找到当前 job 所在组的根
-	selfRoot := find(selfPID)
-
-	// 收集同组的所有 pid
-	var groupPIDs []int64
-	for _, j := range samePGIDJobs {
+	pidIndexes := make(map[int64][]int)
+	for i, j := range samePGIDJobs {
 		if j.PID == nil {
 			continue
 		}
-		if find(*j.PID) == selfRoot && *j.PID != selfPID {
+		pidIndexes[*j.PID] = append(pidIndexes[*j.PID], i)
+	}
+
+	for i, j := range samePGIDJobs {
+		if j.PID == nil || j.PPID == nil {
+			continue
+		}
+		candidates := pidIndexes[*j.PPID]
+		parentIdx := chooseParentProcessIndex(samePGIDJobs, candidates, i)
+		if parentIdx == -1 {
+			continue
+		}
+		union(i, parentIdx)
+	}
+
+	selfIdx := -1
+	for i := range samePGIDJobs {
+		if samePGIDJobs[i].JobID == job.JobID {
+			selfIdx = i
+			break
+		}
+	}
+	if selfIdx == -1 {
+		return nil
+	}
+
+	selfRoot := find(selfIdx)
+	groupPIDs := make([]int64, 0)
+	for i, j := range samePGIDJobs {
+		if i == selfIdx || j.PID == nil {
+			continue
+		}
+		if find(i) == selfRoot {
 			groupPIDs = append(groupPIDs, *j.PID)
 		}
 	}
@@ -245,17 +248,17 @@ func (s *JobService) findRelatedNPUJobs(job *model.Job) []model.Job {
 	}
 
 	// 查 NPU 占用，只返回有 NPU 记录的进程
-	npuMap, err := s.metricsRepo.FindNPUCardsByPIDs(nodeID, groupPIDs)
+	npuMap, err := s.metricsRepo.FindNPUCardsByPIDs(nodeID, dedupeInt64(groupPIDs))
 	if err != nil || len(npuMap) == 0 {
 		return nil
 	}
 
 	var related []model.Job
-	for _, j := range samePGIDJobs {
-		if j.PID == nil || *j.PID == selfPID {
+	for i, j := range samePGIDJobs {
+		if i == selfIdx || j.PID == nil {
 			continue
 		}
-		if find(*j.PID) == selfRoot && len(npuMap[*j.PID]) > 0 {
+		if find(i) == selfRoot && len(npuMap[*j.PID]) > 0 {
 			related = append(related, j)
 		}
 	}
@@ -300,7 +303,33 @@ func (s *JobService) GetJobStats() (map[string]int64, error) {
 
 // GetDistinctCardCounts 获取所有去重的卡数值（基于 npu_processes）
 func (s *JobService) GetDistinctCardCounts() ([]int, error) {
-	return s.metricsRepo.DistinctNPUCardCounts()
+	jobs, err := s.jobRepo.FindFiltered("", nil, nil, nil, "", "")
+	if err != nil {
+		return nil, fmt.Errorf("find filtered for card counts: %w", err)
+	}
+
+	groups, err := s.buildGroupedJobs(jobs)
+	if err != nil {
+		return nil, err
+	}
+
+	groups = filterStopNameGroups(groups)
+
+	seen := make(map[int]struct{})
+	counts := make([]int, 0)
+	for _, group := range groups {
+		if group.CardCount == nil {
+			continue
+		}
+		if _, ok := seen[*group.CardCount]; ok {
+			continue
+		}
+		seen[*group.CardCount] = struct{}{}
+		counts = append(counts, *group.CardCount)
+	}
+
+	sort.Ints(counts)
+	return counts, nil
 }
 
 // GetGroupedJobs 按 ppid 链路构建进程树分组查询作业
@@ -345,58 +374,112 @@ var ppidStopNames = map[string]bool{
 	"systemd": true, "init": true, "supervisord": true,
 }
 
+type nodePIDKey struct {
+	nodeID string
+	pid    int64
+}
+
+func normalizeNodeID(nodeID *string) string {
+	if nodeID == nil {
+		return ""
+	}
+	return *nodeID
+}
+
+// chooseParentProcessIndex 从候选父进程中选择最合理的一个。
+// 优先选择：非停止词进程、且 start_time 不晚于子进程且最接近的进程。
+func chooseParentProcessIndex(jobs []model.Job, candidates []int, childIdx int) int {
+	if len(candidates) == 0 {
+		return -1
+	}
+
+	child := jobs[childIdx]
+	bestIdx := -1
+	bestRank := int64(1<<62 - 1)
+	bestDiff := int64(1<<62 - 1)
+
+	for _, idx := range candidates {
+		if idx == childIdx {
+			continue
+		}
+		parentJob := jobs[idx]
+		if parentJob.ProcessName != nil && ppidStopNames[*parentJob.ProcessName] {
+			continue
+		}
+
+		rank := int64(2)
+		diff := int64(0)
+		if child.StartTime != nil && parentJob.StartTime != nil {
+			if *parentJob.StartTime <= *child.StartTime {
+				rank = 0
+				diff = *child.StartTime - *parentJob.StartTime
+			} else {
+				rank = 1
+				diff = *parentJob.StartTime - *child.StartTime
+			}
+		}
+
+		if bestIdx == -1 || rank < bestRank || (rank == bestRank && diff < bestDiff) ||
+			(rank == bestRank && diff == bestDiff && idx < bestIdx) {
+			bestIdx = idx
+			bestRank = rank
+			bestDiff = diff
+		}
+	}
+
+	return bestIdx
+}
+
 // buildGroupedJobs 使用 Union-Find 按 ppid 链路构建进程树分组，并补充卡数信息
 func (s *JobService) buildGroupedJobs(jobs []model.Job) ([]JobGroup, error) {
 	if len(jobs) == 0 {
 		return []JobGroup{}, nil
 	}
 
-	// Union-Find: 按 node_id 分别构建进程树
-	parent := make(map[int64]int64)
-	pidIndex := make(map[int64]int) // pid -> jobs 数组下标
+	parent := make([]int, len(jobs))
+	for i := range jobs {
+		parent[i] = i
+	}
 
+	var find func(int) int
+	find = func(i int) int {
+		if parent[i] != i {
+			parent[i] = find(parent[i])
+		}
+		return parent[i]
+	}
+
+	union := func(a, b int) {
+		rootA := find(a)
+		rootB := find(b)
+		if rootA != rootB {
+			parent[rootA] = rootB
+		}
+	}
+
+	pidIndexes := make(map[nodePIDKey][]int)
 	for i, job := range jobs {
 		if job.PID == nil {
 			continue
 		}
-		pid := *job.PID
-		parent[pid] = pid
-		pidIndex[pid] = i
+		key := nodePIDKey{nodeID: normalizeNodeID(job.NodeID), pid: *job.PID}
+		pidIndexes[key] = append(pidIndexes[key], i)
 	}
 
-	var find func(int64) int64
-	find = func(pid int64) int64 {
-		if parent[pid] != pid {
-			parent[pid] = find(parent[pid])
-		}
-		return parent[pid]
-	}
-
-	// 合并：如果 ppid 在同一 node 的集合中，合并到 ppid 的根
-	// 但不穿越停止词进程（shell/容器运行时），避免不相关作业被串联
-	for _, job := range jobs {
+	parentLink := make(map[int]int)
+	// 合并：根据 node_id + ppid 查找候选父进程，再按时间接近度选择最优父进程
+	for i, job := range jobs {
 		if job.PID == nil || job.PPID == nil {
 			continue
 		}
-		ppid := *job.PPID
-		if _, exists := parent[ppid]; exists {
-			ppidIdx := pidIndex[ppid]
-			parentJob := jobs[ppidIdx]
-			// 父进程是停止词进程时不合并，切断 ppid 链路
-			if parentJob.ProcessName != nil && ppidStopNames[*parentJob.ProcessName] {
-				continue
-			}
-			// 确保同一 node_id 才合并
-			sameNode := (job.NodeID == nil && parentJob.NodeID == nil) ||
-				(job.NodeID != nil && parentJob.NodeID != nil && *job.NodeID == *parentJob.NodeID)
-			if sameNode {
-				rootA := find(*job.PID)
-				rootB := find(ppid)
-				if rootA != rootB {
-					parent[rootA] = rootB // 子合并到父
-				}
-			}
+		key := nodePIDKey{nodeID: normalizeNodeID(job.NodeID), pid: *job.PPID}
+		candidates := pidIndexes[key]
+		parentIdx := chooseParentProcessIndex(jobs, candidates, i)
+		if parentIdx == -1 {
+			continue
 		}
+		union(i, parentIdx)
+		parentLink[i] = parentIdx
 	}
 
 	// 按根 pid 聚合分组
@@ -405,14 +488,14 @@ func (s *JobService) buildGroupedJobs(jobs []model.Job) ([]JobGroup, error) {
 		nid  string
 		pids []int64
 	}
-	groupMap := make(map[int64]*groupInfo)
-	var rootOrder []int64
+	groupMap := make(map[int]*groupInfo)
+	var rootOrder []int
 
 	for i, job := range jobs {
 		if job.PID == nil {
 			continue
 		}
-		root := find(*job.PID)
+		root := find(i)
 		if g, ok := groupMap[root]; ok {
 			g.jobs = append(g.jobs, i)
 			g.pids = append(g.pids, *job.PID)
@@ -454,21 +537,16 @@ func (s *JobService) buildGroupedJobs(jobs []model.Job) ([]JobGroup, error) {
 	for _, root := range rootOrder {
 		info := groupMap[root]
 
-		// 选择 MainJob：PPID 不在组内的进程作为根；如有多个，选 start_time 最早的
-		pidSet := make(map[int64]bool, len(info.pids))
-		for _, pid := range info.pids {
-			pidSet[pid] = true
-		}
-
+		// 选择 MainJob：没有父链接的进程作为根；如有多个，选 start_time 最早的
 		mainIdx := info.jobs[0]
 		for _, idx := range info.jobs {
-			job := jobs[idx]
-			curMain := jobs[mainIdx]
-			jobIsRoot := job.PPID == nil || !pidSet[*job.PPID]
-			curIsRoot := curMain.PPID == nil || !pidSet[*curMain.PPID]
-			if jobIsRoot && !curIsRoot {
+			_, jobHasParent := parentLink[idx]
+			_, curHasParent := parentLink[mainIdx]
+			if !jobHasParent && curHasParent {
 				mainIdx = idx
-			} else if jobIsRoot && curIsRoot {
+			} else if !jobHasParent && !curHasParent {
+				job := jobs[idx]
+				curMain := jobs[mainIdx]
 				// 都是根，选 start_time 最早的
 				if job.StartTime != nil && curMain.StartTime != nil && *job.StartTime < *curMain.StartTime {
 					mainIdx = idx

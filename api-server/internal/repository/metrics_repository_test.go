@@ -61,3 +61,23 @@ func TestMetricsRepository_DistinctNPUCardCounts_OnlyRunning(t *testing.T) {
 	assert.Equal(t, []int{1, 2}, result)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestMetricsRepository_FindNPUProcessesByPID_OnlyRunning(t *testing.T) {
+	db, mock, cleanup := setupMockDB(t)
+	defer cleanup()
+
+	repo := NewMetricsRepository(db)
+
+	rows := sqlmock.NewRows([]string{"id", "node_id", "pid", "npu_id", "status"}).
+		AddRow(1, "node-001", int64(100), 0, "running").
+		AddRow(2, "node-001", int64(100), 1, "running")
+
+	mock.ExpectQuery("SELECT \\* FROM `npu_processes` WHERE node_id = \\? AND pid = \\? AND status = \\?").
+		WithArgs("node-001", int64(100), "running").
+		WillReturnRows(rows)
+
+	processes, err := repo.FindNPUProcessesByPID("node-001", 100)
+	assert.NoError(t, err)
+	assert.Len(t, processes, 2)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

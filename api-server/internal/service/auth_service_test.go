@@ -3,7 +3,9 @@ package service
 import (
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"golang.org/x/crypto/bcrypt"
@@ -146,6 +148,26 @@ func TestAuthService_ParseToken_WrongSecret(t *testing.T) {
 	token, _ := svc1.Login("user1", "pass")
 	_, _, err := svc2.ParseToken(token)
 	assert.Error(t, err)
+}
+
+func TestAuthService_ParseToken_InvalidClaims_NoPanic(t *testing.T) {
+	mockRepo := new(MockUserRepository)
+	svc := NewAuthService(mockRepo, "test-secret", 24)
+
+	claims := jwt.MapClaims{
+		"user_id":  "not-a-number",
+		"username": 123,
+		"exp":      time.Now().Add(time.Hour).Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := token.SignedString([]byte("test-secret"))
+	assert.NoError(t, err)
+
+	assert.NotPanics(t, func() {
+		_, _, parseErr := svc.ParseToken(signed)
+		assert.Error(t, parseErr)
+		assert.Equal(t, "invalid claims", parseErr.Error())
+	})
 }
 
 func TestAuthService_CreateUser_Success(t *testing.T) {

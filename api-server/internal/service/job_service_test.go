@@ -349,7 +349,7 @@ func TestJobService_GetGroupedJobs(t *testing.T) {
 	// server.py (pid=100) 是父进程，EngineCore (pid=101, ppid=100) 是子进程
 	pid1 := int64(100)
 	pid2 := int64(101)
-	ppid1 := int64(1) // server.py 的父进程是 init
+	ppid1 := int64(1)   // server.py 的父进程是 init
 	ppid2 := int64(100) // EngineCore 的父进程是 server.py
 	startTime1 := int64(1770373780000)
 	startTime2 := int64(1770373803000) // 晚 23 秒
@@ -539,12 +539,105 @@ func TestJobService_GetDistinctCardCounts(t *testing.T) {
 
 	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
 
-	mockMetricsRepo.On("DistinctNPUCardCounts").Return([]int{1, 2, 4, 8}, nil)
+	node1 := "node-001"
+	node2 := "node-002"
+	pid1 := int64(100)
+	pid2 := int64(101)
+	pid3 := int64(200)
+	ppidRoot := int64(1)
+	ppidChild := int64(100)
+	start1 := int64(1770373780000)
+	start2 := int64(1770373781000)
+	start3 := int64(1770373790000)
+	name1 := "train.py"
+	name2 := "worker"
+	name3 := "infer.py"
+	status := "running"
+
+	jobs := []model.Job{
+		{JobID: "job-001", NodeID: &node1, PID: &pid1, PPID: &ppidRoot, StartTime: &start1, ProcessName: &name1, Status: &status},
+		{JobID: "job-002", NodeID: &node1, PID: &pid2, PPID: &ppidChild, StartTime: &start2, ProcessName: &name2, Status: &status},
+		{JobID: "job-003", NodeID: &node2, PID: &pid3, PPID: &ppidRoot, StartTime: &start3, ProcessName: &name3, Status: &status},
+	}
+
+	mockJobRepo.On("FindFiltered", "", []string(nil), []string(nil), []string(nil), "", "").Return(jobs, nil)
+	mockMetricsRepo.On("FindNPUCardsByPIDs", "node-001", mock.MatchedBy(func(pids []int64) bool {
+		return len(pids) == 2
+	})).Return(map[int64][]int{100: {0}, 101: {0}}, nil)
+	mockMetricsRepo.On("FindNPUCardsByPIDs", "node-002", mock.MatchedBy(func(pids []int64) bool {
+		return len(pids) == 1 && pids[0] == 200
+	})).Return(map[int64][]int{200: {0, 1}}, nil)
 
 	counts, err := svc.GetDistinctCardCounts()
 
 	assert.NoError(t, err)
-	assert.Equal(t, []int{1, 2, 4, 8}, counts)
+	assert.Equal(t, []int{1, 2}, counts)
+	mockJobRepo.AssertExpectations(t)
+	mockMetricsRepo.AssertExpectations(t)
+}
+
+func TestJobService_GetGroupedJobs_NoCrossNodePIDMerge(t *testing.T) {
+	mockJobRepo := new(MockJobRepository)
+	mockParamRepo := new(MockParameterRepository)
+	mockCodeRepo := new(MockCodeRepository)
+	mockMetricsRepo := new(MockMetricsRepository)
+
+	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
+
+	node1 := "node-001"
+	node2 := "node-002"
+	pidRoot := int64(100)
+	pidChild1 := int64(101)
+	pidChild2 := int64(201)
+	ppidRoot := int64(1)
+	ppidChild := int64(100)
+	start1 := int64(1770373780000)
+	start2 := int64(1770373781000)
+	start3 := int64(1770373790000)
+	start4 := int64(1770373791000)
+	nameRoot1 := "node1-main"
+	nameChild1 := "node1-worker"
+	nameRoot2 := "node2-main"
+	nameChild2 := "node2-worker"
+	status := "running"
+
+	jobs := []model.Job{
+		{JobID: "job-001", NodeID: &node1, PID: &pidRoot, PPID: &ppidRoot, StartTime: &start1, ProcessName: &nameRoot1, Status: &status},
+		{JobID: "job-002", NodeID: &node1, PID: &pidChild1, PPID: &ppidChild, StartTime: &start2, ProcessName: &nameChild1, Status: &status},
+		{JobID: "job-003", NodeID: &node2, PID: &pidRoot, PPID: &ppidRoot, StartTime: &start3, ProcessName: &nameRoot2, Status: &status},
+		{JobID: "job-004", NodeID: &node2, PID: &pidChild2, PPID: &ppidChild, StartTime: &start4, ProcessName: &nameChild2, Status: &status},
+	}
+
+	var statuses, jobTypes, frameworks []string
+	var cardCounts []int
+
+	mockJobRepo.On("FindFiltered", "", statuses, jobTypes, frameworks, "", "").Return(jobs, nil)
+	mockMetricsRepo.On("FindNPUCardsByPIDs", "node-001", mock.MatchedBy(func(pids []int64) bool {
+		return len(pids) == 2
+	})).Return(map[int64][]int{100: {0}, 101: {0}}, nil)
+	mockMetricsRepo.On("FindNPUCardsByPIDs", "node-002", mock.MatchedBy(func(pids []int64) bool {
+		return len(pids) == 2
+	})).Return(map[int64][]int{100: {1}, 201: {1}}, nil)
+
+	groups, total, err := svc.GetGroupedJobs("", statuses, jobTypes, frameworks, cardCounts, "", "", 1, 20)
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+	assert.Len(t, groups, 2)
+
+	groupByNode := make(map[string]JobGroup)
+	for _, g := range groups {
+		if g.MainJob.NodeID != nil {
+			groupByNode[*g.MainJob.NodeID] = g
+		}
+	}
+	assert.Len(t, groupByNode, 2)
+	assert.Equal(t, "job-001", groupByNode["node-001"].MainJob.JobID)
+	assert.Equal(t, "job-003", groupByNode["node-002"].MainJob.JobID)
+	assert.Len(t, groupByNode["node-001"].ChildJobs, 1)
+	assert.Len(t, groupByNode["node-002"].ChildJobs, 1)
+
+	mockJobRepo.AssertExpectations(t)
 	mockMetricsRepo.AssertExpectations(t)
 }
 
@@ -765,6 +858,60 @@ func TestJobService_GetJobDetail_WithNPU(t *testing.T) {
 	assert.Len(t, detail.NPUCards, 2)
 	assert.Len(t, detail.RelatedJobs, 1)
 	assert.Equal(t, "job-002", detail.RelatedJobs[0].JobID)
+	mockJobRepo.AssertExpectations(t)
+	mockMetricsRepo.AssertExpectations(t)
+}
+
+func TestJobService_GetJobDetail_DeduplicateNPUCards(t *testing.T) {
+	mockJobRepo := new(MockJobRepository)
+	mockParamRepo := new(MockParameterRepository)
+	mockCodeRepo := new(MockCodeRepository)
+	mockMetricsRepo := new(MockMetricsRepository)
+
+	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
+
+	nodeID := "node-001"
+	pid := int64(100)
+	jobName := "train.py"
+
+	job := &model.Job{
+		JobID:   "job-001",
+		NodeID:  &nodeID,
+		PID:     &pid,
+		JobName: &jobName,
+	}
+
+	mockJobRepo.On("FindByID", "job-001").Return(job, nil)
+
+	npuID0 := 0
+	npuID1 := 1
+	mem0 := float64(1024)
+	mem0dup := float64(2048)
+	mem1 := float64(512)
+	npuProcs := []model.NPUProcess{
+		{NodeID: &nodeID, PID: &pid, NPUID: &npuID0, MemoryUsageMB: &mem0},
+		{NodeID: &nodeID, PID: &pid, NPUID: &npuID0, MemoryUsageMB: &mem0dup},
+		{NodeID: &nodeID, PID: &pid, NPUID: &npuID1, MemoryUsageMB: &mem1},
+	}
+	mockMetricsRepo.On("FindNPUProcessesByPID", nodeID, pid).Return(npuProcs, nil)
+
+	metrics := []model.NPUMetric{
+		{NPUID: &npuID0},
+		{NPUID: &npuID1},
+	}
+	mockMetricsRepo.On("FindLatestNPUMetrics", nodeID, mock.MatchedBy(func(ids []int) bool {
+		return len(ids) == 2
+	})).Return(metrics, nil)
+
+	detail, err := svc.GetJobDetail("job-001")
+
+	assert.NoError(t, err)
+	assert.NotNil(t, detail)
+	assert.Len(t, detail.NPUCards, 2)
+	assert.Equal(t, 0, detail.NPUCards[0].NpuID)
+	assert.Equal(t, float64(2048), detail.NPUCards[0].MemoryUsageMB)
+	assert.Equal(t, 1, detail.NPUCards[1].NpuID)
+	assert.Equal(t, float64(512), detail.NPUCards[1].MemoryUsageMB)
 	mockJobRepo.AssertExpectations(t)
 	mockMetricsRepo.AssertExpectations(t)
 }
