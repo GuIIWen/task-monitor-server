@@ -58,6 +58,6 @@ export const jobApi = {
    * AI分析作业
    */
   analyzeJob: async (jobId: string): Promise<JobAnalysis> => {
-    return apiClient.post(`/jobs/${jobId}/analyze`);
+    return apiClient.post(`/jobs/${jobId}/analyze`, null, { timeout: 180000 });
   },
 };
