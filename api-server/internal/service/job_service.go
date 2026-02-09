@@ -504,6 +504,24 @@ func (s *JobService) buildGroupedJobs(jobs []model.Job) ([]JobGroup, error) {
 		parentLink[i] = parentIdx
 	}
 
+	// 兜底：同 node_id + pgid 的进程合并（ppid 链断裂时靠 pgid 兜底）
+	type nodePGIDKey struct {
+		nodeID string
+		pgid   int64
+	}
+	pgidFirst := make(map[nodePGIDKey]int)
+	for i, job := range jobs {
+		if job.PID == nil || job.PGID == nil || *job.PGID == 0 {
+			continue
+		}
+		key := nodePGIDKey{nodeID: normalizeNodeID(job.NodeID), pgid: *job.PGID}
+		if first, ok := pgidFirst[key]; ok {
+			union(i, first)
+		} else {
+			pgidFirst[key] = i
+		}
+	}
+
 	// 按根 pid 聚合分组
 	type groupInfo struct {
 		jobs []int // jobs 数组下标
