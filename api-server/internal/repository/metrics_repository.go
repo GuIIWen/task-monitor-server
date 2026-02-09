@@ -28,15 +28,23 @@ type npuPidRow struct {
 
 // FindNPUCardsByPIDs 根据 node_id 和 pid 列表查询每个 pid 占用的去重 NPU 卡号
 func (r *MetricsRepository) FindNPUCardsByPIDs(nodeID string, pids []int64) (map[int64][]int, error) {
+	return r.FindNPUCardsByPIDsWithStatuses(nodeID, pids, []string{"running"})
+}
+
+// FindNPUCardsByPIDsWithStatuses 根据 node_id、pid 列表和状态过滤查询每个 pid 占用的去重 NPU 卡号
+func (r *MetricsRepository) FindNPUCardsByPIDsWithStatuses(nodeID string, pids []int64, statuses []string) (map[int64][]int, error) {
 	if len(pids) == 0 {
 		return make(map[int64][]int), nil
 	}
 
 	var rows []npuPidRow
-	err := r.db.Table("npu_processes").
+	query := r.db.Table("npu_processes").
 		Select("DISTINCT pid, npu_id").
-		Where("node_id = ? AND pid IN ? AND status = ?", nodeID, pids, "running").
-		Find(&rows).Error
+		Where("node_id = ? AND pid IN ?", nodeID, pids)
+	if len(statuses) > 0 {
+		query = query.Where("status IN ?", statuses)
+	}
+	err := query.Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}

@@ -452,6 +452,30 @@ func chooseParentProcessIndex(jobs []model.Job, candidates []int, childIdx int) 
 	return bestIdx
 }
 
+func isTerminalJobStatus(status *string) bool {
+	if status == nil {
+		return false
+	}
+	switch *status {
+	case "stopped", "completed", "failed", "lost":
+		return true
+	default:
+		return false
+	}
+}
+
+func hasNPUForAnyPID(npuMap map[int64][]int, pids []int64) bool {
+	if npuMap == nil || len(pids) == 0 {
+		return false
+	}
+	for _, pid := range pids {
+		if len(npuMap[pid]) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // buildGroupedJobs 使用 Union-Find 按 ppid 链路构建进程树分组，并补充卡数信息
 func (s *JobService) buildGroupedJobs(jobs []model.Job) ([]JobGroup, error) {
 	if len(jobs) == 0 {
@@ -572,6 +596,10 @@ func (s *JobService) buildGroupedJobs(jobs []model.Job) ([]JobGroup, error) {
 		nodeNPUMap[nid] = npuMap
 	}
 
+	// 终态作业在 npu_processes 仅保留 stopped 记录时，running 过滤会拿不到卡信息。
+	// 仅在终态组且 running 数据为空时，按 running+stopped 做一次兜底查询。
+	nodeNPUFallbackMap := make(map[string]map[int64][]int)
+
 	// 组装 JobGroup 结果
 	groups := make([]JobGroup, 0, len(rootOrder))
 	for _, root := range rootOrder {
@@ -599,11 +627,29 @@ func (s *JobService) buildGroupedJobs(jobs []model.Job) ([]JobGroup, error) {
 			ChildJobs: make([]model.Job, 0, len(info.jobs)-1),
 		}
 		npuMap := nodeNPUMap[info.nid]
+		groupHasNPU := hasNPUForAnyPID(npuMap, info.pids)
+		if !groupHasNPU && isTerminalJobStatus(group.MainJob.Status) && info.nid != "" {
+			fallbackMap, ok := nodeNPUFallbackMap[info.nid]
+			if !ok {
+				var err error
+				fallbackMap, err = s.metricsRepo.FindNPUCardsByPIDsWithStatuses(info.nid, dedupeInt64(nodeAllPIDs[info.nid]), []string{"running", "stopped"})
+				if err != nil {
+					return nil, fmt.Errorf("find fallback npu cards: %w", err)
+				}
+				nodeNPUFallbackMap[info.nid] = fallbackMap
+			}
+			if hasNPUForAnyPID(fallbackMap, info.pids) {
+				npuMap = fallbackMap
+				groupHasNPU = true
+			}
+		}
+
+		includeAllChildren := isTerminalJobStatus(group.MainJob.Status) && !groupHasNPU
 		for _, idx := range info.jobs {
 			if idx != mainIdx {
 				child := jobs[idx]
-				// 只保留在 NPU 上运行的子进程
-				if child.PID != nil && npuMap != nil && len(npuMap[*child.PID]) > 0 {
+				// 运行态默认只展示 NPU 子进程；终态且无 NPU 数据时兜底展示链路子进程。
+				if includeAllChildren || (child.PID != nil && npuMap != nil && len(npuMap[*child.PID]) > 0) {
 					group.ChildJobs = append(group.ChildJobs, child)
 				}
 			}

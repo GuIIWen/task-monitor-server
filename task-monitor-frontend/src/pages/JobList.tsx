@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { Table, Space, Button, Tag, Modal, notification, Progress } from 'antd';
-import { CheckCircleOutlined, WarningOutlined, LoadingOutlined } from '@ant-design/icons';
+import { Table, Space, Button, Tag, Modal, Progress } from 'antd';
+import { CheckCircleOutlined, WarningOutlined, LoadingOutlined, MinusOutlined, ExpandOutlined, CloseOutlined } from '@ant-design/icons';
 import type { TablePaginationConfig, SorterResult, FilterValue } from 'antd/es/table/interface';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { StatusBadge } from '@/components/Common';
@@ -42,7 +42,15 @@ const JobList: React.FC = () => {
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
   const analyzingRef = useRef(false);
 
-  const NOTIFY_KEY = 'batch-analyze';
+  // 批量分析浮动进度状态
+  const [analyzeProgress, setAnalyzeProgress] = useState<{
+    status: 'running' | 'done';
+    current: number;
+    total: number;
+    success: number;
+    failed: number;
+  } | null>(null);
+  const [progressMinimized, setProgressMinimized] = useState(false);
 
   const { data, isLoading } = useGroupedJobs(params);
   const { data: nodesData } = useNodes();
@@ -129,44 +137,9 @@ const JobList: React.FC = () => {
     setSearchParams(newSearchParams);
   };
 
-  const updateNotification = useCallback((current: number, total: number, success: number, failed: number) => {
-    const percent = Math.round((current / total) * 100);
-    notification.open({
-      key: NOTIFY_KEY,
-      message: '批量分析进行中',
-      description: (
-        <div>
-          <Progress percent={percent} size="small" status="active" />
-          <div style={{ marginTop: 8, color: '#666', fontSize: 13 }}>
-            进度 {current}/{total}，成功 {success}，失败 {failed}
-          </div>
-        </div>
-      ),
-      icon: <LoadingOutlined style={{ color: '#1890ff' }} />,
-      duration: 0,
-      placement: 'bottomRight',
-    });
-  }, []);
-
-  const showResultNotification = useCallback((total: number, success: number, failed: number) => {
-    const allSuccess = failed === 0;
-    notification.open({
-      key: NOTIFY_KEY,
-      message: allSuccess ? '批量分析完成' : '批量分析完成（部分失败）',
-      description: (
-        <div>
-          <Progress percent={100} size="small" status={allSuccess ? 'success' : 'exception'} />
-          <div style={{ marginTop: 8, fontSize: 13 }}>
-            共 {total} 个作业：{success} 个成功{failed > 0 ? `，${failed} 个失败` : ''}
-          </div>
-        </div>
-      ),
-      icon: allSuccess
-        ? <CheckCircleOutlined style={{ color: '#52c41a' }} />
-        : <WarningOutlined style={{ color: '#faad14' }} />,
-      duration: 6,
-      placement: 'bottomRight',
-    });
+  const dismissProgress = useCallback(() => {
+    setAnalyzeProgress(null);
+    setProgressMinimized(false);
   }, []);
 
   const handleBatchAnalyze = () => {
@@ -181,6 +154,8 @@ const JobList: React.FC = () => {
       onOk: () => {
         analyzingRef.current = true;
         setSelectedRowKeys([]);
+        setProgressMinimized(false);
+        setAnalyzeProgress({ status: 'running', current: 0, total: jobIds.length, success: 0, failed: 0 });
 
         const run = async () => {
           let success = 0;
@@ -188,7 +163,7 @@ const JobList: React.FC = () => {
           const total = jobIds.length;
 
           for (let i = 0; i < total; i++) {
-            updateNotification(i, total, success, failed);
+            setAnalyzeProgress({ status: 'running', current: i, total, success, failed });
             try {
               await jobApi.analyzeJob(jobIds[i]);
               success++;
@@ -198,7 +173,7 @@ const JobList: React.FC = () => {
           }
 
           analyzingRef.current = false;
-          showResultNotification(total, success, failed);
+          setAnalyzeProgress({ status: 'done', current: total, total, success, failed });
         };
 
         run();
@@ -398,6 +373,67 @@ const JobList: React.FC = () => {
         showTotal: (total) => `共 ${total} 组`,
       }}
     />
+
+    {/* 批量分析浮动进度 */}
+    {analyzeProgress && (
+      progressMinimized ? (
+        <div
+          onClick={() => setProgressMinimized(false)}
+          style={{
+            position: 'fixed', bottom: 24, right: 24, zIndex: 1050,
+            background: analyzeProgress.status === 'running' ? '#1890ff' : (analyzeProgress.failed > 0 ? '#faad14' : '#52c41a'),
+            color: '#fff', borderRadius: 20, padding: '8px 16px',
+            cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+            display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
+          }}
+        >
+          {analyzeProgress.status === 'running'
+            ? <><LoadingOutlined /> 分析中 {analyzeProgress.current}/{analyzeProgress.total}</>
+            : <><ExpandOutlined /> 分析完成 {analyzeProgress.success}/{analyzeProgress.total}</>
+          }
+        </div>
+      ) : (
+        <div style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 1050,
+          width: 320, background: '#fff', borderRadius: 8,
+          boxShadow: '0 6px 20px rgba(0,0,0,0.15)', overflow: 'hidden',
+        }}>
+          <div style={{
+            padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            background: analyzeProgress.status === 'running' ? '#1890ff' : (analyzeProgress.failed > 0 ? '#faad14' : '#52c41a'),
+            color: '#fff',
+          }}>
+            <span style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8 }}>
+              {analyzeProgress.status === 'running'
+                ? <><LoadingOutlined /> 批量分析进行中</>
+                : analyzeProgress.failed > 0
+                  ? <><WarningOutlined /> 批量分析完成（部分失败）</>
+                  : <><CheckCircleOutlined /> 批量分析完成</>
+              }
+            </span>
+            <span style={{ display: 'flex', gap: 8 }}>
+              <MinusOutlined onClick={() => setProgressMinimized(true)} style={{ cursor: 'pointer' }} />
+              {analyzeProgress.status === 'done' && (
+                <CloseOutlined onClick={dismissProgress} style={{ cursor: 'pointer' }} />
+              )}
+            </span>
+          </div>
+          <div style={{ padding: '12px 16px' }}>
+            <Progress
+              percent={analyzeProgress.total > 0 ? Math.round((analyzeProgress.current / analyzeProgress.total) * 100) : 0}
+              size="small"
+              status={analyzeProgress.status === 'running' ? 'active' : (analyzeProgress.failed > 0 ? 'exception' : 'success')}
+            />
+            <div style={{ marginTop: 8, color: '#666', fontSize: 13 }}>
+              {analyzeProgress.status === 'running'
+                ? <>进度 {analyzeProgress.current}/{analyzeProgress.total}，成功 {analyzeProgress.success}，失败 {analyzeProgress.failed}</>
+                : <>共 {analyzeProgress.total} 个作业：{analyzeProgress.success} 个成功{analyzeProgress.failed > 0 ? `，${analyzeProgress.failed} 个失败` : ''}</>
+              }
+            </div>
+          </div>
+        </div>
+      )
+    )}
     </div>
   );
 };

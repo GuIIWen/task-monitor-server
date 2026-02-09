@@ -18,7 +18,7 @@ func TestMetricsRepository_FindNPUCardsByPIDs_OnlyRunning(t *testing.T) {
 		AddRow(int64(100), 1).
 		AddRow(int64(101), 1)
 
-	mock.ExpectQuery("SELECT DISTINCT pid, npu_id FROM `npu_processes` WHERE node_id = \\? AND pid IN \\(\\?,\\?\\) AND status = \\?").
+	mock.ExpectQuery("SELECT DISTINCT pid, npu_id FROM `npu_processes` WHERE \\(node_id = \\? AND pid IN \\(\\?,\\?\\)\\) AND status IN \\(\\?\\)").
 		WithArgs("node-001", int64(100), int64(101), "running").
 		WillReturnRows(rows)
 
@@ -39,6 +39,26 @@ func TestMetricsRepository_FindNPUCardsByPIDs_EmptyPIDs(t *testing.T) {
 	result, err := repo.FindNPUCardsByPIDs("node-001", nil)
 	assert.NoError(t, err)
 	assert.Empty(t, result)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestMetricsRepository_FindNPUCardsByPIDsWithStatuses_NoStatusFilter(t *testing.T) {
+	db, mock, cleanup := setupMockDB(t)
+	defer cleanup()
+
+	repo := NewMetricsRepository(db)
+
+	rows := sqlmock.NewRows([]string{"pid", "npu_id"}).
+		AddRow(int64(100), 0)
+
+	mock.ExpectQuery("SELECT DISTINCT pid, npu_id FROM `npu_processes` WHERE node_id = \\? AND pid IN \\(\\?\\)").
+		WithArgs("node-001", int64(100)).
+		WillReturnRows(rows)
+
+	result, err := repo.FindNPUCardsByPIDsWithStatuses("node-001", []int64{100}, nil)
+	assert.NoError(t, err)
+	assert.Len(t, result, 1)
+	assert.ElementsMatch(t, []int{0}, result[100])
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 

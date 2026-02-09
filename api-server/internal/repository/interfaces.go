@@ -41,6 +41,8 @@ type MetricsRepositoryInterface interface {
 	IsMetricsRepository()
 	// FindNPUCardsByPIDs 根据 node_id 和 pid 列表查询每个 pid 占用的 NPU 卡号
 	FindNPUCardsByPIDs(nodeID string, pids []int64) (map[int64][]int, error)
+	// FindNPUCardsByPIDsWithStatuses 根据状态过滤查询每个 pid 占用的 NPU 卡号；statuses 为空表示不过滤状态
+	FindNPUCardsByPIDsWithStatuses(nodeID string, pids []int64, statuses []string) (map[int64][]int, error)
 	// DistinctNPUCardCounts 查询所有任务组的去重卡数列表
 	DistinctNPUCardCounts() ([]int, error)
 	// FindNPUProcessesByPID 查询单个进程占用的所有 NPU 记录
