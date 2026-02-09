@@ -409,6 +409,11 @@ const JobDetail: React.FC = () => {
                   <Tag color="purple">{analysisData.taskType.inferenceFramework}</Tag>
                 )}
               </Space>
+              {analysisData.taskType.evidence && (
+                <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+                  判断依据：{analysisData.taskType.evidence}
+                </Typography.Paragraph>
+              )}
             </div>
 
             {analysisData.modelInfo && (
@@ -420,6 +425,69 @@ const JobDetail: React.FC = () => {
                   <Descriptions.Item label="精度">{analysisData.modelInfo.precision || '-'}</Descriptions.Item>
                   <Descriptions.Item label="并行策略">{analysisData.modelInfo.parallelStrategy || '-'}</Descriptions.Item>
                 </Descriptions>
+              </div>
+            )}
+
+            {analysisData.runtimeAnalysis && (
+              <div>
+                <Typography.Title level={5} style={{ marginBottom: 8 }}>运行时长分析</Typography.Title>
+                <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                  <Space>
+                    <Typography.Text>运行时长：</Typography.Text>
+                    <Typography.Text strong>{analysisData.runtimeAnalysis.duration}</Typography.Text>
+                    <Tag color={
+                      analysisData.runtimeAnalysis.status === 'normal' ? 'green' :
+                      analysisData.runtimeAnalysis.status === 'completed' ? 'blue' :
+                      analysisData.runtimeAnalysis.status === 'just-started' ? 'cyan' :
+                      'orange'
+                    }>
+                      {analysisData.runtimeAnalysis.status === 'normal' ? '正常' :
+                       analysisData.runtimeAnalysis.status === 'completed' ? '已完成' :
+                       analysisData.runtimeAnalysis.status === 'just-started' ? '刚启动' : '长时间运行'}
+                    </Tag>
+                  </Space>
+                  <Typography.Text type="secondary">{analysisData.runtimeAnalysis.description}</Typography.Text>
+                </Space>
+              </div>
+            )}
+
+            {analysisData.parameterCheck && analysisData.parameterCheck.items.length > 0 && (
+              <div>
+                <Typography.Title level={5} style={{ marginBottom: 8 }}>
+                  参数检查
+                  <Tag
+                    color={
+                      analysisData.parameterCheck.status === 'normal' ? 'green' :
+                      analysisData.parameterCheck.status === 'warning' ? 'orange' : 'red'
+                    }
+                    style={{ marginLeft: 8 }}
+                  >
+                    {analysisData.parameterCheck.status === 'normal' ? '正常' :
+                     analysisData.parameterCheck.status === 'warning' ? '警告' : '异常'}
+                  </Tag>
+                </Typography.Title>
+                <Table
+                  dataSource={analysisData.parameterCheck.items}
+                  rowKey={(_, idx) => String(idx)}
+                  pagination={false}
+                  size="small"
+                  bordered
+                  columns={[
+                    { title: '参数', dataIndex: 'parameter', width: 200 },
+                    { title: '当前值', dataIndex: 'value', width: 150 },
+                    {
+                      title: '评估',
+                      dataIndex: 'assessment',
+                      width: 100,
+                      render: (v: string) => (
+                        <Tag color={v === 'normal' ? 'green' : v === 'warning' ? 'orange' : 'red'}>
+                          {v === 'normal' ? '正常' : v === 'warning' ? '警告' : '异常'}
+                        </Tag>
+                      ),
+                    },
+                    { title: '说明', dataIndex: 'reason' },
+                  ]}
+                />
               </div>
             )}
 

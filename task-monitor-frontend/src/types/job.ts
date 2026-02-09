@@ -108,6 +108,7 @@ export interface JobAnalysisTaskType {
   category: 'training' | 'inference' | 'unknown';
   subCategory: 'pre-training' | 'fine-tuning' | 'rlhf' | 'evaluation' | 'serving' | 'batch-inference' | null;
   inferenceFramework: string | null;
+  evidence: string | null;
 }
 
 export interface JobAnalysisModelInfo {
@@ -115,6 +116,24 @@ export interface JobAnalysisModelInfo {
   modelSize: string | null;
   precision: string | null;
   parallelStrategy: string | null;
+}
+
+export interface JobAnalysisRuntimeAnalysis {
+  duration: string;
+  status: 'normal' | 'long-running' | 'just-started' | 'completed';
+  description: string;
+}
+
+export interface JobAnalysisParameterItem {
+  parameter: string;
+  value: string;
+  assessment: 'normal' | 'warning' | 'abnormal';
+  reason: string;
+}
+
+export interface JobAnalysisParameterCheck {
+  status: 'normal' | 'warning' | 'abnormal';
+  items: JobAnalysisParameterItem[];
 }
 
 export interface JobAnalysisResourceAssessment {
@@ -134,6 +153,8 @@ export interface JobAnalysis {
   summary: string;
   taskType: JobAnalysisTaskType;
   modelInfo: JobAnalysisModelInfo | null;
+  runtimeAnalysis: JobAnalysisRuntimeAnalysis | null;
+  parameterCheck: JobAnalysisParameterCheck | null;
   resourceAssessment: JobAnalysisResourceAssessment;
   issues: JobAnalysisIssue[];
   suggestions: string[];

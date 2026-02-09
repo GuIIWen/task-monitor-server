@@ -145,6 +145,18 @@ func (s *LLMService) buildUserPrompt(jobID string) (string, error) {
 	if job.CWD != nil {
 		sb.WriteString(fmt.Sprintf("- 工作目录: %s\n", *job.CWD))
 	}
+	if job.StartTime != nil {
+		st := time.Unix(*job.StartTime, 0)
+		sb.WriteString(fmt.Sprintf("- 启动时间: %s\n", st.Format("2006-01-02 15:04:05")))
+		if job.EndTime != nil && *job.EndTime > 0 {
+			et := time.Unix(*job.EndTime, 0)
+			sb.WriteString(fmt.Sprintf("- 结束时间: %s\n", et.Format("2006-01-02 15:04:05")))
+			sb.WriteString(fmt.Sprintf("- 运行时长: %s\n", formatDuration(*job.EndTime-*job.StartTime)))
+		} else {
+			elapsed := time.Now().Unix() - *job.StartTime
+			sb.WriteString(fmt.Sprintf("- 已运行时长: %s（仍在运行）\n", formatDuration(elapsed)))
+		}
+	}
 
 	// NPU卡信息
 	sb.WriteString(fmt.Sprintf("\n## NPU 卡信息 (共 %d 张)\n", len(detail.NPUCards)))
@@ -374,23 +386,58 @@ func safeInt64(p *int64) int64 {
 	return *p
 }
 
+// formatDuration 将秒数格式化为可读时长
+func formatDuration(seconds int64) string {
+	if seconds < 60 {
+		return fmt.Sprintf("%d秒", seconds)
+	}
+	if seconds < 3600 {
+		return fmt.Sprintf("%d分%d秒", seconds/60, seconds%60)
+	}
+	h := seconds / 3600
+	m := (seconds % 3600) / 60
+	if h < 24 {
+		return fmt.Sprintf("%d小时%d分", h, m)
+	}
+	d := h / 24
+	h = h % 24
+	return fmt.Sprintf("%d天%d小时%d分", d, h, m)
+}
+
 // systemPrompt LLM系统提示词
-const systemPrompt = `你是一个专业的 NPU（华为昇腾）作业分析助手。用户会提供一个在昇腾 NPU 上运行的作业的详细信息，包括基本信息、NPU 资源使用、脚本代码、参数配置和环境变量。
+const systemPrompt = `你是一个专业的 NPU（华为昇腾）作业分析助手。用户会提供一个在昇腾 NPU 上运行的作业的详细信息，包括基本信息、运行时长、NPU 资源使用、脚本代码、参数配置和环境变量。
 
 请你综合分析这些信息，并严格按照以下 JSON 格式返回结果，不要输出任何其他内容：
 
 {
-  "summary": "100字以内的作业概要描述",
+  "summary": "100字以内的作业概要描述，包含作业类型、模型名称、运行时长等关键信息",
   "taskType": {
-    "category": "training 或 inference 或 unknown",
+    "category": "training / inference / unknown",
     "subCategory": "pre-training / fine-tuning / rlhf / evaluation / serving / batch-inference 或 null",
-    "inferenceFramework": "推理框架名称如 vLLM / TGI / MindIE 或 null"
+    "inferenceFramework": "推理框架名称如 vLLM / TGI / MindIE / Triton 或 null",
+    "evidence": "判断依据，说明从哪些信息得出此结论"
   },
   "modelInfo": {
     "modelName": "模型名称或null",
     "modelSize": "模型大小如7B/13B/70B或null",
-    "precision": "精度如fp16/bf16/int8或null",
+    "precision": "精度如fp16/bf16/int8/int4或null",
     "parallelStrategy": "并行策略如TP=8/PP=2或null"
+  },
+  "runtimeAnalysis": {
+    "duration": "运行时长的可读描述",
+    "status": "normal / long-running / just-started / completed",
+    "description": "对运行时长的分析说明，如推理服务长期运行是否正常、训练任务预计时长是否合理等"
+  },
+  "parameterCheck": {
+    "status": "normal / warning / abnormal",
+    "items": [
+      {
+        "parameter": "参数名称",
+        "value": "当前值",
+        "assessment": "normal / warning / abnormal",
+        "reason": "判断理由"
+      }
+    ]
   },
   "resourceAssessment": {
     "npuUtilization": "high / medium / low / idle",
@@ -408,12 +455,35 @@ const systemPrompt = `你是一个专业的 NPU（华为昇腾）作业分析助
   "suggestions": ["优化建议1", "优化建议2"]
 }
 
-分析要点：
-1. 根据命令行、脚本内容、框架信息判断作业类型（训练/推理）和子类型
-2. 从参数、环境变量、脚本中提取模型名称、大小、精度、并行策略
-3. 根据 NPU AICore 使用率和 HBM 使用情况评估资源利用率
-4. 识别潜在问题：资源浪费、配置不当、性能瓶颈等
-5. 给出针对性的优化建议
+分析要点（按优先级排列）：
+
+1. **作业类型识别**（最重要）
+   - 综合命令行、进程名、脚本内容、框架、环境变量判断是训练还是推理
+   - 训练子类型：预训练(pre-training)、微调(fine-tuning)、RLHF、评估(evaluation)
+   - 推理子类型：在线服务(serving)、批量推理(batch-inference)
+   - 在 evidence 字段说明判断依据
+
+2. **模型识别**
+   - 从命令行参数、脚本路径、配置文件、环境变量中提取模型名称和大小
+   - 识别精度设置（fp16/bf16/int8/int4/混合精度）
+   - 识别并行策略（TP/PP/DP 及其数值）
+
+3. **运行时长分析**
+   - 结合作业类型判断运行时长是否合理
+   - 推理服务(serving)：长期运行是正常的
+   - 训练任务：根据模型大小和数据量评估时长是否合理
+   - 批量推理：运行时间过长可能说明有性能问题
+
+4. **参数合理性检查**（重点）
+   - 训练场景：learning_rate 量级是否合理（通常1e-3~1e-6）、batch_size 与显存是否匹配、warmup_steps 是否合理、gradient_accumulation_steps 设置
+   - 推理场景：max_tokens/max_model_len 是否合理、tensor_parallel_size 与实际卡数是否一致、gpu_memory_utilization 设置、max_batch_size/max_num_seqs 是否合理
+   - 通用：是否开启了不必要的调试选项（如 TORCH_LOGS、TORCHDYNAMO_VERBOSE）、HCCL 通信相关参数是否正确
+   - 每个有问题的参数单独列出，说明当前值和建议值
+
+5. **资源评估**
+   - NPU AICore 使用率和 HBM 使用情况
+   - 多卡场景下各卡是否均衡
+   - 功耗是否与利用率匹配（高功耗低利用率可能有问题）
 
 如果某些信息无法确定，对应字段填 null。modelInfo 整体可以为 null。
-issues 和 suggestions 数组可以为空但不能为 null。`
+parameterCheck.items、issues 和 suggestions 数组可以为空但不能为 null。`

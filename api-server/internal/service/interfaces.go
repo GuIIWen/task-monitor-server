@@ -39,6 +39,7 @@ type JobAnalysisTaskType struct {
 	Category           string  `json:"category"`
 	SubCategory        *string `json:"subCategory"`
 	InferenceFramework *string `json:"inferenceFramework"`
+	Evidence           *string `json:"evidence"`
 }
 
 // JobAnalysisModelInfo 模型信息分析
@@ -47,6 +48,27 @@ type JobAnalysisModelInfo struct {
 	ModelSize        *string `json:"modelSize"`
 	Precision        *string `json:"precision"`
 	ParallelStrategy *string `json:"parallelStrategy"`
+}
+
+// JobAnalysisRuntimeAnalysis 运行时长分析
+type JobAnalysisRuntimeAnalysis struct {
+	Duration    string `json:"duration"`
+	Status      string `json:"status"`
+	Description string `json:"description"`
+}
+
+// JobAnalysisParameterItem 参数检查项
+type JobAnalysisParameterItem struct {
+	Parameter  string `json:"parameter"`
+	Value      string `json:"value"`
+	Assessment string `json:"assessment"`
+	Reason     string `json:"reason"`
+}
+
+// JobAnalysisParameterCheck 参数合理性检查
+type JobAnalysisParameterCheck struct {
+	Status string                     `json:"status"`
+	Items  []JobAnalysisParameterItem `json:"items"`
 }
 
 // JobAnalysisResourceAssessment 资源评估
@@ -69,6 +91,8 @@ type JobAnalysisResponse struct {
 	Summary            string                        `json:"summary"`
 	TaskType           JobAnalysisTaskType            `json:"taskType"`
 	ModelInfo          *JobAnalysisModelInfo           `json:"modelInfo"`
+	RuntimeAnalysis    *JobAnalysisRuntimeAnalysis     `json:"runtimeAnalysis"`
+	ParameterCheck     *JobAnalysisParameterCheck      `json:"parameterCheck"`
 	ResourceAssessment JobAnalysisResourceAssessment   `json:"resourceAssessment"`
 	Issues             []JobAnalysisIssue             `json:"issues"`
 	Suggestions        []string                       `json:"suggestions"`
