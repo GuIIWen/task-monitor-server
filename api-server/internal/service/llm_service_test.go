@@ -350,10 +350,12 @@ func setupMockJobData(mockJobSvc *MockJobServiceForLLM, jobID string) {
 			{
 				NpuID:         0,
 				MemoryUsageMB: 11500.0,
-				Metric: &model.NPUMetric{
-					AICoreUsagePercent: &aicore,
-					HBMUsageMB:        &hbmUsed,
-					HBMTotalMB:        &hbmTotal,
+				Metrics: []model.NPUMetric{
+					{
+						AICoreUsagePercent: &aicore,
+						HBMUsageMB:        &hbmUsed,
+						HBMTotalMB:        &hbmTotal,
+					},
 				},
 			},
 		},

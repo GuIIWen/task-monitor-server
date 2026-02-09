@@ -105,16 +105,13 @@ func (s *JobService) GetJobDetail(jobID string) (*JobDetailResponse, error) {
 		}
 		sort.Ints(npuIDs)
 
-		// 3. 查询卡详情并按 npu_id 建立映射
-		metricByNPU := make(map[int]*model.NPUMetric)
+		// 3. 查询卡详情并按 npu_id 建立映射（保留所有 chip）
+		metricsByNPU := make(map[int][]model.NPUMetric)
 		metrics, err := s.metricsRepo.FindLatestNPUMetrics(nodeID, npuIDs)
 		if err == nil {
-			for i := range metrics {
-				if metrics[i].NPUID != nil {
-					// 同一 npu_id 可能有多条（如多 bus_id），保留首条即可
-					if _, ok := metricByNPU[*metrics[i].NPUID]; !ok {
-						metricByNPU[*metrics[i].NPUID] = &metrics[i]
-					}
+			for _, m := range metrics {
+				if m.NPUID != nil {
+					metricsByNPU[*m.NPUID] = append(metricsByNPU[*m.NPUID], m)
 				}
 			}
 		}
@@ -124,7 +121,7 @@ func (s *JobService) GetJobDetail(jobID string) (*JobDetailResponse, error) {
 			resp.NPUCards = append(resp.NPUCards, NPUCardInfo{
 				NpuID:         npuID,
 				MemoryUsageMB: cardMemory[npuID],
-				Metric:        metricByNPU[npuID],
+				Metrics:       metricsByNPU[npuID],
 			})
 		}
 	}

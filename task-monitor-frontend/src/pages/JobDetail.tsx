@@ -1,13 +1,52 @@
 import React, { useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Descriptions, Button, Space, Tag, Modal, Table, Progress, Typography, Spin, Alert, message } from 'antd';
+import { Card, Collapse, Descriptions, Button, Space, Tag, Modal, Table, Progress, Typography, Spin, Alert, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { ArrowLeftOutlined, CodeOutlined, DownOutlined, RightOutlined, RobotOutlined } from '@ant-design/icons';
 import { StatusBadge, LoadingSpinner } from '@/components/Common';
 import { useJob, useJobCode, useJobParameters } from '@/hooks';
 import { jobApi } from '@/api';
 import { formatTimestamp, JOB_TYPE_MAP } from '@/utils';
-import type { Job, NPUCardInfo, JobDetailResponse, JobAnalysis } from '@/types/job';
+import type { Job, NPUCardInfo, NPUMetricInfo, JobDetailResponse, JobAnalysis } from '@/types/job';
+
+// 扁平化的 Chip 行，用于 NPU 卡表格展示
+interface NPUChipRow {
+  key: string;
+  npuId: number;
+  chipLabel: string;
+  memoryUsageMb: number;
+  metric: NPUMetricInfo;
+}
+
+function flattenNPUCards(cards: NPUCardInfo[]): NPUChipRow[] {
+  const rows: NPUChipRow[] = [];
+  for (const card of cards) {
+    if (!card.metrics || card.metrics.length === 0) {
+      rows.push({
+        key: `npu-${card.npuId}`,
+        npuId: card.npuId,
+        chipLabel: `NPU ${card.npuId}`,
+        memoryUsageMb: card.memoryUsageMb,
+        metric: {} as NPUMetricInfo,
+      });
+      continue;
+    }
+    for (let i = 0; i < card.metrics.length; i++) {
+      const m = card.metrics[i];
+      const label = card.metrics.length > 1
+        ? `NPU ${card.npuId} - Chip${i}`
+        : `NPU ${card.npuId}`;
+      rows.push({
+        key: `npu-${card.npuId}-${m.busId ?? i}`,
+        npuId: card.npuId,
+        chipLabel: label,
+        memoryUsageMb: card.memoryUsageMb,
+        metric: m,
+      });
+    }
+  }
+  return rows;
+}
 
 const JobDetail: React.FC = () => {
   const { jobId } = useParams<{ jobId: string }>();
@@ -67,11 +106,13 @@ const JobDetail: React.FC = () => {
   const npuCards = detail.npuCards || [];
   const relatedJobs = detail.relatedJobs || [];
 
-  const npuCardColumns: ColumnsType<NPUCardInfo> = [
+  const npuChipRows = flattenNPUCards(npuCards);
+
+  const npuChipColumns: ColumnsType<NPUChipRow> = [
     {
-      title: '卡号',
-      dataIndex: 'npuId',
-      width: 80,
+      title: '卡号 / Chip',
+      dataIndex: 'chipLabel',
+      width: 140,
     },
     {
       title: '进程显存 (MB)',
@@ -132,9 +173,9 @@ const JobDetail: React.FC = () => {
     },
   ];
 
-  // 子进程 NPU 卡表：HBM 列显示该进程自己的显存占用，而非整卡 HBM
-  const childNpuColumns: ColumnsType<NPUCardInfo> = [
-    { title: '卡号', dataIndex: 'npuId', width: 80 },
+  // 子进程 NPU 卡表：使用扁平化 chip 行
+  const childNpuColumns: ColumnsType<NPUChipRow> = [
+    { title: '卡号 / Chip', dataIndex: 'chipLabel', width: 140 },
     {
       title: '健康状态',
       key: 'health',
@@ -303,19 +344,28 @@ const JobDetail: React.FC = () => {
         </Descriptions>
       </Card>
 
-      <Card title={`NPU 卡信息${npuCards.length > 0 ? ` (${npuCards.length} 张)` : ''}`}>
-        {npuCards.length === 0 ? (
+      {npuCards.length === 0 ? (
+        <Card title="NPU 卡信息">
           <Typography.Text type="secondary">该进程未占用 NPU</Typography.Text>
-        ) : (
-          <Table<NPUCardInfo>
-            dataSource={npuCards}
-            rowKey="npuId"
-            pagination={false}
-            size="small"
-            columns={npuCardColumns}
-          />
-        )}
-      </Card>
+        </Card>
+      ) : (
+        <Collapse
+          defaultActiveKey={npuChipRows.length <= 4 ? ['npu'] : []}
+          items={[{
+            key: 'npu',
+            label: `NPU 卡信息 (${npuCards.length} 张${npuChipRows.length > npuCards.length ? `，${npuChipRows.length} 个 Chip` : ''})`,
+            children: (
+              <Table<NPUChipRow>
+                dataSource={npuChipRows}
+                rowKey="key"
+                pagination={false}
+                size="small"
+                columns={npuChipColumns}
+              />
+            ),
+          }]}
+        />
+      )}
 
       {relatedJobs.length > 0 && (
         <Card title={`关联 NPU 进程 (${relatedJobs.length})`}>
@@ -339,16 +389,17 @@ const JobDetail: React.FC = () => {
                   return <Typography.Text type="secondary">加载失败</Typography.Text>;
                 }
                 const childCards = childDetail.npuCards || [];
+                const childChipRows = flattenNPUCards(childCards);
                 return (
                   <div style={{ padding: '8px 0' }}>
                     <Descriptions bordered size="small" column={2}>
                       <Descriptions.Item label="PID">{childDetail.job.pid ?? '-'}</Descriptions.Item>
                       <Descriptions.Item label="进程名称">{childDetail.job.processName ?? '-'}</Descriptions.Item>
                     </Descriptions>
-                    {childCards.length > 0 && (
-                      <Table<NPUCardInfo>
-                        dataSource={childCards}
-                        rowKey={(r) => `${r.npuId}-${r.metric?.busId ?? ''}`}
+                    {childChipRows.length > 0 && (
+                      <Table<NPUChipRow>
+                        dataSource={childChipRows}
+                        rowKey="key"
                         pagination={false}
                         size="small"
                         columns={childNpuColumns}

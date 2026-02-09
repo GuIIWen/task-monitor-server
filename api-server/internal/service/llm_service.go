@@ -164,8 +164,10 @@ func (s *LLMService) buildUserPrompt(jobID string) (string, error) {
 	sb.WriteString(fmt.Sprintf("\n## NPU 卡信息 (共 %d 张)\n", len(detail.NPUCards)))
 	for _, card := range detail.NPUCards {
 		sb.WriteString(fmt.Sprintf("- NPU %d: 进程显存 %.1f MB", card.NpuID, card.MemoryUsageMB))
-		if card.Metric != nil {
-			m := card.Metric
+		for ci, m := range card.Metrics {
+			if ci > 0 {
+				sb.WriteString(fmt.Sprintf("\n  Chip%d:", ci))
+			}
 			if m.AICoreUsagePercent != nil {
 				sb.WriteString(fmt.Sprintf(", AICore使用率 %.1f%%", *m.AICoreUsagePercent))
 			}

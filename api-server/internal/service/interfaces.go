@@ -22,9 +22,9 @@ type JobGroup struct {
 
 // NPUCardInfo 进程占用的 NPU 卡信息
 type NPUCardInfo struct {
-	NpuID         int              `json:"npuId"`
-	MemoryUsageMB float64          `json:"memoryUsageMb"`
-	Metric        *model.NPUMetric `json:"metric"`
+	NpuID         int                `json:"npuId"`
+	MemoryUsageMB float64            `json:"memoryUsageMb"`
+	Metrics       []model.NPUMetric  `json:"metrics"`
 }
 
 // JobDetailResponse 作业详情响应

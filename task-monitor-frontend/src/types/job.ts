@@ -40,7 +40,7 @@ export interface NPUMetricInfo {
 export interface NPUCardInfo {
   npuId: number;
   memoryUsageMb: number;
-  metric: NPUMetricInfo | null;
+  metrics: NPUMetricInfo[];
 }
 
 export interface JobDetailResponse {
