@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -61,7 +62,7 @@ func (h *ConfigHandler) UpdateLLMConfig(c *gin.Context) {
 	if req.Endpoint != nil {
 		llmCfg.Endpoint = *req.Endpoint
 	}
-	if req.APIKey != nil {
+	if req.APIKey != nil && *req.APIKey != "" && !strings.HasPrefix(*req.APIKey, "****") {
 		llmCfg.APIKey = *req.APIKey
 	}
 	if req.Model != nil {
