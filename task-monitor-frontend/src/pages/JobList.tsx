@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Table, Space, Button, Tag, Modal, Progress } from 'antd';
 import { CheckCircleOutlined, WarningOutlined, LoadingOutlined, MinusOutlined, ExpandOutlined, CloseOutlined } from '@ant-design/icons';
 import type { TablePaginationConfig, SorterResult, FilterValue } from 'antd/es/table/interface';
@@ -43,14 +43,47 @@ const JobList: React.FC = () => {
   const analyzingRef = useRef(false);
 
   // 批量分析浮动进度状态
-  const [analyzeProgress, setAnalyzeProgress] = useState<{
-    status: 'running' | 'done';
+  const STORAGE_KEY = 'batch-analyze-progress';
+  type AnalyzeProgress = {
+    status: 'running' | 'done' | 'interrupted';
     current: number;
     total: number;
     success: number;
     failed: number;
-  } | null>(null);
+  };
+  const [analyzeProgress, setAnalyzeProgress] = useState<AnalyzeProgress | null>(() => {
+    try {
+      const saved = sessionStorage.getItem(STORAGE_KEY);
+      if (!saved) return null;
+      const parsed = JSON.parse(saved) as AnalyzeProgress;
+      if (parsed.status === 'running') {
+        return { ...parsed, status: 'interrupted' };
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
+  });
   const [progressMinimized, setProgressMinimized] = useState(false);
+
+  // 持久化进度到 sessionStorage
+  useEffect(() => {
+    if (analyzeProgress) {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(analyzeProgress));
+    } else {
+      sessionStorage.removeItem(STORAGE_KEY);
+    }
+  }, [analyzeProgress]);
+
+  // 分析进行中拦截页面刷新/关闭
+  useEffect(() => {
+    if (analyzeProgress?.status !== 'running') return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [analyzeProgress?.status]);
 
   const { data, isLoading } = useGroupedJobs(params);
   const { data: nodesData } = useNodes();
@@ -381,7 +414,7 @@ const JobList: React.FC = () => {
           onClick={() => setProgressMinimized(false)}
           style={{
             position: 'fixed', bottom: 24, right: 24, zIndex: 1050,
-            background: analyzeProgress.status === 'running' ? '#1890ff' : (analyzeProgress.failed > 0 ? '#faad14' : '#52c41a'),
+            background: analyzeProgress.status === 'running' ? '#1890ff' : (analyzeProgress.failed > 0 || analyzeProgress.status === 'interrupted' ? '#faad14' : '#52c41a'),
             color: '#fff', borderRadius: 20, padding: '8px 16px',
             cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
             display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
@@ -389,7 +422,9 @@ const JobList: React.FC = () => {
         >
           {analyzeProgress.status === 'running'
             ? <><LoadingOutlined /> 分析中 {analyzeProgress.current}/{analyzeProgress.total}</>
-            : <><ExpandOutlined /> 分析完成 {analyzeProgress.success}/{analyzeProgress.total}</>
+            : analyzeProgress.status === 'interrupted'
+              ? <><WarningOutlined /> 分析已中断 {analyzeProgress.success}/{analyzeProgress.total}</>
+              : <><ExpandOutlined /> 分析完成 {analyzeProgress.success}/{analyzeProgress.total}</>
           }
         </div>
       ) : (
@@ -400,20 +435,22 @@ const JobList: React.FC = () => {
         }}>
           <div style={{
             padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            background: analyzeProgress.status === 'running' ? '#1890ff' : (analyzeProgress.failed > 0 ? '#faad14' : '#52c41a'),
+            background: analyzeProgress.status === 'running' ? '#1890ff' : (analyzeProgress.failed > 0 || analyzeProgress.status === 'interrupted' ? '#faad14' : '#52c41a'),
             color: '#fff',
           }}>
             <span style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8 }}>
               {analyzeProgress.status === 'running'
                 ? <><LoadingOutlined /> 批量分析进行中</>
-                : analyzeProgress.failed > 0
-                  ? <><WarningOutlined /> 批量分析完成（部分失败）</>
-                  : <><CheckCircleOutlined /> 批量分析完成</>
+                : analyzeProgress.status === 'interrupted'
+                  ? <><WarningOutlined /> 批量分析已中断</>
+                  : analyzeProgress.failed > 0
+                    ? <><WarningOutlined /> 批量分析完成（部分失败）</>
+                    : <><CheckCircleOutlined /> 批量分析完成</>
               }
             </span>
             <span style={{ display: 'flex', gap: 8 }}>
               <MinusOutlined onClick={() => setProgressMinimized(true)} style={{ cursor: 'pointer' }} />
-              {analyzeProgress.status === 'done' && (
+              {analyzeProgress.status !== 'running' && (
                 <CloseOutlined onClick={dismissProgress} style={{ cursor: 'pointer' }} />
               )}
             </span>
@@ -422,12 +459,14 @@ const JobList: React.FC = () => {
             <Progress
               percent={analyzeProgress.total > 0 ? Math.round((analyzeProgress.current / analyzeProgress.total) * 100) : 0}
               size="small"
-              status={analyzeProgress.status === 'running' ? 'active' : (analyzeProgress.failed > 0 ? 'exception' : 'success')}
+              status={analyzeProgress.status === 'running' ? 'active' : (analyzeProgress.failed > 0 || analyzeProgress.status === 'interrupted' ? 'exception' : 'success')}
             />
             <div style={{ marginTop: 8, color: '#666', fontSize: 13 }}>
               {analyzeProgress.status === 'running'
                 ? <>进度 {analyzeProgress.current}/{analyzeProgress.total}，成功 {analyzeProgress.success}，失败 {analyzeProgress.failed}</>
-                : <>共 {analyzeProgress.total} 个作业：{analyzeProgress.success} 个成功{analyzeProgress.failed > 0 ? `，${analyzeProgress.failed} 个失败` : ''}</>
+                : analyzeProgress.status === 'interrupted'
+                  ? <>页面刷新导致中断，已完成 {analyzeProgress.success}/{analyzeProgress.total}</>
+                  : <>共 {analyzeProgress.total} 个作业：{analyzeProgress.success} 个成功{analyzeProgress.failed > 0 ? `，${analyzeProgress.failed} 个失败` : ''}</>
               }
             </div>
           </div>
