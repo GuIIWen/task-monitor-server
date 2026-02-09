@@ -40,50 +40,60 @@ const JobList: React.FC = () => {
   });
 
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
-  const analyzingRef = useRef(false);
 
   // 批量分析浮动进度状态
-  const STORAGE_KEY = 'batch-analyze-progress';
+  const BATCH_KEY = 'batch-analyze-id';
   type AnalyzeProgress = {
-    status: 'running' | 'done' | 'interrupted';
+    status: 'running' | 'done';
     current: number;
     total: number;
     success: number;
     failed: number;
   };
-  const [analyzeProgress, setAnalyzeProgress] = useState<AnalyzeProgress | null>(() => {
-    try {
-      const saved = sessionStorage.getItem(STORAGE_KEY);
-      if (!saved) return null;
-      const parsed = JSON.parse(saved) as AnalyzeProgress;
-      if (parsed.status === 'running') {
-        return { ...parsed, status: 'interrupted' };
-      }
-      return parsed;
-    } catch {
-      return null;
-    }
-  });
+  const [analyzeProgress, setAnalyzeProgress] = useState<AnalyzeProgress | null>(null);
   const [progressMinimized, setProgressMinimized] = useState(false);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 持久化进度到 sessionStorage
+  // 轮询批量分析进度
+  const startPolling = useCallback((batchId: string) => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    pollingRef.current = setInterval(async () => {
+      try {
+        const progress = await jobApi.getBatchAnalyzeProgress(batchId);
+        setAnalyzeProgress(progress);
+        if (progress.status === 'done') {
+          if (pollingRef.current) clearInterval(pollingRef.current);
+          pollingRef.current = null;
+          sessionStorage.removeItem(BATCH_KEY);
+        }
+      } catch {
+        // 接口异常时停止轮询
+        if (pollingRef.current) clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    }, 2000);
+  }, []);
+
+  // 页面加载时恢复轮询
   useEffect(() => {
-    if (analyzeProgress) {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(analyzeProgress));
-    } else {
-      sessionStorage.removeItem(STORAGE_KEY);
+    const savedBatchId = sessionStorage.getItem(BATCH_KEY);
+    if (savedBatchId) {
+      // 立即查一次进度
+      jobApi.getBatchAnalyzeProgress(savedBatchId).then((progress) => {
+        setAnalyzeProgress(progress);
+        if (progress.status !== 'done') {
+          startPolling(savedBatchId);
+        } else {
+          sessionStorage.removeItem(BATCH_KEY);
+        }
+      }).catch(() => {
+        sessionStorage.removeItem(BATCH_KEY);
+      });
     }
-  }, [analyzeProgress]);
-
-  // 分析进行中拦截页面刷新/关闭
-  useEffect(() => {
-    if (analyzeProgress?.status !== 'running') return;
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
     };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [analyzeProgress?.status]);
+  }, [startPolling]);
 
   const { data, isLoading } = useGroupedJobs(params);
   const { data: nodesData } = useNodes();
@@ -176,7 +186,7 @@ const JobList: React.FC = () => {
   }, []);
 
   const handleBatchAnalyze = () => {
-    if (analyzingRef.current) return;
+    if (analyzeProgress?.status === 'running') return;
     const jobIds = [...selectedRowKeys];
 
     Modal.confirm({
@@ -184,32 +194,18 @@ const JobList: React.FC = () => {
       content: `确定要对选中的 ${jobIds.length} 个作业进行 AI 分析吗？`,
       okText: '确定',
       cancelText: '取消',
-      onOk: () => {
-        analyzingRef.current = true;
+      onOk: async () => {
         setSelectedRowKeys([]);
         setProgressMinimized(false);
         setAnalyzeProgress({ status: 'running', current: 0, total: jobIds.length, success: 0, failed: 0 });
 
-        const run = async () => {
-          let success = 0;
-          let failed = 0;
-          const total = jobIds.length;
-
-          for (let i = 0; i < total; i++) {
-            setAnalyzeProgress({ status: 'running', current: i, total, success, failed });
-            try {
-              await jobApi.analyzeJob(jobIds[i]);
-              success++;
-            } catch {
-              failed++;
-            }
-          }
-
-          analyzingRef.current = false;
-          setAnalyzeProgress({ status: 'done', current: total, total, success, failed });
-        };
-
-        run();
+        try {
+          const { batchId } = await jobApi.batchAnalyze(jobIds);
+          sessionStorage.setItem(BATCH_KEY, batchId);
+          startPolling(batchId);
+        } catch {
+          setAnalyzeProgress(null);
+        }
       },
     });
   };
@@ -414,7 +410,7 @@ const JobList: React.FC = () => {
           onClick={() => setProgressMinimized(false)}
           style={{
             position: 'fixed', bottom: 24, right: 24, zIndex: 1050,
-            background: analyzeProgress.status === 'running' ? '#1890ff' : (analyzeProgress.failed > 0 || analyzeProgress.status === 'interrupted' ? '#faad14' : '#52c41a'),
+            background: analyzeProgress.status === 'running' ? '#1890ff' : (analyzeProgress.failed > 0 ? '#faad14' : '#52c41a'),
             color: '#fff', borderRadius: 20, padding: '8px 16px',
             cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
             display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
@@ -422,9 +418,7 @@ const JobList: React.FC = () => {
         >
           {analyzeProgress.status === 'running'
             ? <><LoadingOutlined /> 分析中 {analyzeProgress.current}/{analyzeProgress.total}</>
-            : analyzeProgress.status === 'interrupted'
-              ? <><WarningOutlined /> 分析已中断 {analyzeProgress.success}/{analyzeProgress.total}</>
-              : <><ExpandOutlined /> 分析完成 {analyzeProgress.success}/{analyzeProgress.total}</>
+            : <><ExpandOutlined /> 分析完成 {analyzeProgress.success}/{analyzeProgress.total}</>
           }
         </div>
       ) : (
@@ -435,17 +429,15 @@ const JobList: React.FC = () => {
         }}>
           <div style={{
             padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            background: analyzeProgress.status === 'running' ? '#1890ff' : (analyzeProgress.failed > 0 || analyzeProgress.status === 'interrupted' ? '#faad14' : '#52c41a'),
+            background: analyzeProgress.status === 'running' ? '#1890ff' : (analyzeProgress.failed > 0 ? '#faad14' : '#52c41a'),
             color: '#fff',
           }}>
             <span style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8 }}>
               {analyzeProgress.status === 'running'
                 ? <><LoadingOutlined /> 批量分析进行中</>
-                : analyzeProgress.status === 'interrupted'
-                  ? <><WarningOutlined /> 批量分析已中断</>
-                  : analyzeProgress.failed > 0
-                    ? <><WarningOutlined /> 批量分析完成（部分失败）</>
-                    : <><CheckCircleOutlined /> 批量分析完成</>
+                : analyzeProgress.failed > 0
+                  ? <><WarningOutlined /> 批量分析完成（部分失败）</>
+                  : <><CheckCircleOutlined /> 批量分析完成</>
               }
             </span>
             <span style={{ display: 'flex', gap: 8 }}>
@@ -459,14 +451,12 @@ const JobList: React.FC = () => {
             <Progress
               percent={analyzeProgress.total > 0 ? Math.round((analyzeProgress.current / analyzeProgress.total) * 100) : 0}
               size="small"
-              status={analyzeProgress.status === 'running' ? 'active' : (analyzeProgress.failed > 0 || analyzeProgress.status === 'interrupted' ? 'exception' : 'success')}
+              status={analyzeProgress.status === 'running' ? 'active' : (analyzeProgress.failed > 0 ? 'exception' : 'success')}
             />
             <div style={{ marginTop: 8, color: '#666', fontSize: 13 }}>
               {analyzeProgress.status === 'running'
                 ? <>进度 {analyzeProgress.current}/{analyzeProgress.total}，成功 {analyzeProgress.success}，失败 {analyzeProgress.failed}</>
-                : analyzeProgress.status === 'interrupted'
-                  ? <>页面刷新导致中断，已完成 {analyzeProgress.success}/{analyzeProgress.total}</>
-                  : <>共 {analyzeProgress.total} 个作业：{analyzeProgress.success} 个成功{analyzeProgress.failed > 0 ? `，${analyzeProgress.failed} 个失败` : ''}</>
+                : <>共 {analyzeProgress.total} 个作业：{analyzeProgress.success} 个成功{analyzeProgress.failed > 0 ? `，${analyzeProgress.failed} 个失败` : ''}</>
               }
             </div>
           </div>

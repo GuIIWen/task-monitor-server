@@ -67,4 +67,14 @@ export const jobApi = {
   getJobAnalysis: async (jobId: string): Promise<JobAnalysis | null> => {
     return apiClient.get(`/jobs/${jobId}/analysis`);
   },
+
+  batchAnalyze: async (jobIds: string[]): Promise<{ batchId: string }> => {
+    return apiClient.post('/jobs/batch-analyze', { jobIds });
+  },
+
+  getBatchAnalyzeProgress: async (batchId: string): Promise<{
+    status: string; total: number; current: number; success: number; failed: number;
+  }> => {
+    return apiClient.get(`/jobs/batch-analyze/${batchId}`);
+  },
 };

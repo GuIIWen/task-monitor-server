@@ -122,6 +122,8 @@ func main() {
 			jobs.GET("/grouped", jobHandler.GetGroupedJobs)
 			jobs.GET("/grouped/card-counts", jobHandler.GetDistinctCardCounts)
 			jobs.GET("/stats", jobHandler.GetJobStats)
+			jobs.POST("/batch-analyze", jobHandler.BatchAnalyze)
+			jobs.GET("/batch-analyze/:batchId", jobHandler.GetBatchAnalyzeProgress)
 			jobs.GET("/:jobId", jobHandler.GetJobByID)
 			jobs.GET("/:jobId/parameters", jobHandler.GetJobParameters)
 			jobs.GET("/:jobId/code", jobHandler.GetJobCode)

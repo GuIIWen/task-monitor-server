@@ -2,12 +2,30 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/task-monitor/api-server/internal/service"
 	"github.com/task-monitor/api-server/internal/utils"
 	"gorm.io/gorm"
+)
+
+// batchAnalyzeState 批量分析任务状态
+type batchAnalyzeState struct {
+	Status  string `json:"status"` // running / done
+	Total   int    `json:"total"`
+	Current int64  `json:"current"`
+	Success int64  `json:"success"`
+	Failed  int64  `json:"failed"`
+}
+
+var (
+	batchStates   = sync.Map{} // map[string]*batchAnalyzeState
+	batchIDSeq    int64
 )
 
 // JobHandler 作业处理器
@@ -220,4 +238,56 @@ func (h *JobHandler) GetJobAnalysis(c *gin.Context) {
 	}
 
 	utils.SuccessResponse(c, result)
+}
+
+// BatchAnalyze 批量AI分析作业
+func (h *JobHandler) BatchAnalyze(c *gin.Context) {
+	if h.llmService == nil {
+		utils.ErrorResponse(c, 501, "LLM service is not configured")
+		return
+	}
+
+	var req struct {
+		JobIDs []string `json:"jobIds" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.JobIDs) == 0 {
+		utils.ErrorResponse(c, 400, "jobIds is required")
+		return
+	}
+
+	batchID := fmt.Sprintf("batch-%d-%d", time.Now().UnixMilli(), atomic.AddInt64(&batchIDSeq, 1))
+	state := &batchAnalyzeState{Status: "running", Total: len(req.JobIDs)}
+	batchStates.Store(batchID, state)
+
+	go func() {
+		for _, jobID := range req.JobIDs {
+			if _, err := h.llmService.AnalyzeJob(jobID); err != nil {
+				atomic.AddInt64(&state.Failed, 1)
+			} else {
+				atomic.AddInt64(&state.Success, 1)
+			}
+			atomic.AddInt64(&state.Current, 1)
+		}
+		state.Status = "done"
+	}()
+
+	utils.SuccessResponse(c, gin.H{"batchId": batchID})
+}
+
+// GetBatchAnalyzeProgress 查询批量分析进度
+func (h *JobHandler) GetBatchAnalyzeProgress(c *gin.Context) {
+	batchID := c.Param("batchId")
+	val, ok := batchStates.Load(batchID)
+	if !ok {
+		utils.ErrorResponse(c, 404, "batch not found")
+		return
+	}
+	state := val.(*batchAnalyzeState)
+	utils.SuccessResponse(c, gin.H{
+		"status":  state.Status,
+		"total":   state.Total,
+		"current": atomic.LoadInt64(&state.Current),
+		"success": atomic.LoadInt64(&state.Success),
+		"failed":  atomic.LoadInt64(&state.Failed),
+	})
 }
