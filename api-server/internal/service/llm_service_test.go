@@ -102,7 +102,6 @@ func TestLLMService_AnalyzeJob_Success(t *testing.T) {
 			Description:    "NPU利用率良好",
 		},
 		Issues:      []JobAnalysisIssue{},
-		Suggestions: []string{"建议开启KV Cache量化"},
 	}
 	resultJSON, _ := json.Marshal(analysisResult)
 
@@ -139,7 +138,6 @@ func TestLLMService_AnalyzeJob_Success(t *testing.T) {
 	assert.NotNil(t, result)
 	assert.Equal(t, "vLLM推理服务，使用Qwen2.5-7B模型", result.Summary)
 	assert.Equal(t, "inference", result.TaskType.Category)
-	assert.Len(t, result.Suggestions, 1)
 	mockJobSvc.AssertExpectations(t)
 }
 
@@ -179,7 +177,6 @@ func TestLLMService_AnalyzeJob_MarkdownWrappedJSON(t *testing.T) {
 			Description:    "HBM使用率较高",
 		},
 		Issues:      []JobAnalysisIssue{},
-		Suggestions: []string{},
 	}
 	resultJSON, _ := json.Marshal(analysisResult)
 	// LLM返回markdown包裹的JSON
@@ -256,12 +253,13 @@ func TestTruncateStr(t *testing.T) {
 	assert.Contains(t, truncateStr("hello world this is long", 5), "截断")
 }
 
-func TestFilterSensitiveEnvVars(t *testing.T) {
-	envJSON := `{"PATH":"/usr/bin","DB_PASSWORD":"secret123","NORMAL_VAR":"value"}`
-	result := filterSensitiveEnvVars(envJSON)
-	assert.Contains(t, result, "PATH=/usr/bin")
-	assert.Contains(t, result, "DB_PASSWORD=***")
-	assert.Contains(t, result, "NORMAL_VAR=value")
+func TestFilterRelevantEnvVars(t *testing.T) {
+	envJSON := `{"PATH":"/usr/bin","DB_PASSWORD":"secret123","CUDA_VISIBLE_DEVICES":"0,1","MASTER_ADDR":"localhost","NORMAL_VAR":"value"}`
+	result := filterRelevantEnvVars(envJSON)
+	assert.NotContains(t, result, "PATH=/usr/bin")
+	assert.NotContains(t, result, "NORMAL_VAR")
+	assert.Contains(t, result, "CUDA_VISIBLE_DEVICES=0,1")
+	assert.Contains(t, result, "MASTER_ADDR=localhost")
 	assert.NotContains(t, result, "secret123")
 }
 

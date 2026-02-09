@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Descriptions, Button, Space, Tag, Modal, Table, Progress, Typography, Spin, Alert, List, message } from 'antd';
+import { Card, Descriptions, Button, Space, Tag, Modal, Table, Progress, Typography, Spin, Alert, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { ArrowLeftOutlined, CodeOutlined, DownOutlined, RightOutlined, RobotOutlined } from '@ant-design/icons';
 import { StatusBadge, LoadingSpinner } from '@/components/Common';
@@ -529,22 +529,6 @@ const JobDetail: React.FC = () => {
                     />
                   ))}
                 </Space>
-              </div>
-            )}
-
-            {analysisData.suggestions.length > 0 && (
-              <div>
-                <Typography.Title level={5} style={{ marginBottom: 8 }}>优化建议</Typography.Title>
-                <List
-                  size="small"
-                  bordered
-                  dataSource={analysisData.suggestions}
-                  renderItem={(item, idx) => (
-                    <List.Item>
-                      <Typography.Text>{idx + 1}. {item}</Typography.Text>
-                    </List.Item>
-                  )}
-                />
               </div>
             )}
           </Space>

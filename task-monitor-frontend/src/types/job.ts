@@ -157,7 +157,6 @@ export interface JobAnalysis {
   parameterCheck: JobAnalysisParameterCheck | null;
   resourceAssessment: JobAnalysisResourceAssessment;
   issues: JobAnalysisIssue[];
-  suggestions: string[];
 }
 
 export interface GroupedJobListResponse {

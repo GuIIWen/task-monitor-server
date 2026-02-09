@@ -95,7 +95,6 @@ type JobAnalysisResponse struct {
 	ParameterCheck     *JobAnalysisParameterCheck      `json:"parameterCheck"`
 	ResourceAssessment JobAnalysisResourceAssessment   `json:"resourceAssessment"`
 	Issues             []JobAnalysisIssue             `json:"issues"`
-	Suggestions        []string                       `json:"suggestions"`
 }
 
 // LLMServiceInterface LLM服务接口

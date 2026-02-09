@@ -397,7 +397,6 @@ func TestJobHandler_AnalyzeJob_Success(t *testing.T) {
 			Description:    "资源利用率良好",
 		},
 		Issues:      []service.JobAnalysisIssue{},
-		Suggestions: []string{"建议监控长期运行稳定性"},
 	}
 
 	mockLLMService.On("AnalyzeJob", "job-001").Return(expectedResult, nil)

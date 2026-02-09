@@ -146,14 +146,16 @@ func (s *LLMService) buildUserPrompt(jobID string) (string, error) {
 		sb.WriteString(fmt.Sprintf("- 工作目录: %s\n", *job.CWD))
 	}
 	if job.StartTime != nil {
-		st := time.Unix(*job.StartTime, 0)
+		startSec := *job.StartTime / 1000
+		st := time.Unix(startSec, 0)
 		sb.WriteString(fmt.Sprintf("- 启动时间: %s\n", st.Format("2006-01-02 15:04:05")))
 		if job.EndTime != nil && *job.EndTime > 0 {
-			et := time.Unix(*job.EndTime, 0)
+			endSec := *job.EndTime / 1000
+			et := time.Unix(endSec, 0)
 			sb.WriteString(fmt.Sprintf("- 结束时间: %s\n", et.Format("2006-01-02 15:04:05")))
-			sb.WriteString(fmt.Sprintf("- 运行时长: %s\n", formatDuration(*job.EndTime-*job.StartTime)))
+			sb.WriteString(fmt.Sprintf("- 运行时长: %s\n", formatDuration(endSec-startSec)))
 		} else {
-			elapsed := time.Now().Unix() - *job.StartTime
+			elapsed := time.Now().Unix() - startSec
 			sb.WriteString(fmt.Sprintf("- 已运行时长: %s（仍在运行）\n", formatDuration(elapsed)))
 		}
 	}
@@ -212,8 +214,8 @@ func (s *LLMService) buildUserPrompt(jobID string) (string, error) {
 			sb.WriteString("\n```\n")
 		}
 		if p.EnvVars != nil && *p.EnvVars != "" {
-			sb.WriteString("\n## 环境变量（已过滤敏感信息）\n")
-			sb.WriteString(filterSensitiveEnvVars(*p.EnvVars))
+			sb.WriteString("\n## 关键环境变量\n")
+			sb.WriteString(filterRelevantEnvVars(*p.EnvVars))
 			sb.WriteString("\n")
 		}
 	}
@@ -351,17 +353,48 @@ func truncateStr(s string, maxLen int) string {
 	return s[:maxLen] + "\n... (内容已截断)"
 }
 
-// filterSensitiveEnvVars 过滤敏感环境变量
-func filterSensitiveEnvVars(envJSON string) string {
+// relevantEnvPrefixes 训练/推理相关的环境变量前缀
+var relevantEnvPrefixes = []string{
+	"MASTER", "WORLD_SIZE", "RANK", "LOCAL_RANK", "NPROC",
+	"CUDA", "NVIDIA", "GPU",
+	"ASCEND", "HCCL", "NPU",
+	"OMP_NUM_THREADS", "MKL",
+	"TORCH", "NCCL", "GLOO",
+	"TP_SIZE", "PP_SIZE", "DP_SIZE",
+	"DEEPSPEED", "FSDP", "ACCELERATE",
+	"HF_", "HUGGING", "TRANSFORMERS",
+	"MODEL", "CHECKPOINT", "CKPT",
+	"BATCH", "LR", "LEARNING_RATE", "EPOCH",
+	"MINDSPORE", "MS_",
+	"VLLM", "MINDIE", "TGI",
+}
+
+// sensitiveKeys 敏感关键词
+var sensitiveKeys = []string{"PASSWORD", "SECRET", "TOKEN", "KEY", "CREDENTIAL", "AUTH"}
+
+// filterRelevantEnvVars 只保留训练/推理相关的环境变量，过滤敏感信息
+func filterRelevantEnvVars(envJSON string) string {
 	var envMap map[string]string
 	if err := json.Unmarshal([]byte(envJSON), &envMap); err != nil {
 		return "(解析失败)"
 	}
 
-	sensitiveKeys := []string{"PASSWORD", "SECRET", "TOKEN", "KEY", "CREDENTIAL", "AUTH"}
 	var sb strings.Builder
+	count := 0
 	for k, v := range envMap {
 		upper := strings.ToUpper(k)
+		// 检查是否是相关环境变量
+		relevant := false
+		for _, prefix := range relevantEnvPrefixes {
+			if strings.Contains(upper, prefix) {
+				relevant = true
+				break
+			}
+		}
+		if !relevant {
+			continue
+		}
+		// 脱敏
 		isSensitive := false
 		for _, sk := range sensitiveKeys {
 			if strings.Contains(upper, sk) {
@@ -374,6 +407,10 @@ func filterSensitiveEnvVars(envJSON string) string {
 		} else {
 			sb.WriteString(fmt.Sprintf("- %s=%s\n", k, v))
 		}
+		count++
+	}
+	if count == 0 {
+		return "(无训练/推理相关环境变量)\n"
 	}
 	return sb.String()
 }
@@ -405,85 +442,56 @@ func formatDuration(seconds int64) string {
 }
 
 // systemPrompt LLM系统提示词
-const systemPrompt = `你是一个专业的 NPU（华为昇腾）作业分析助手。用户会提供一个在昇腾 NPU 上运行的作业的详细信息，包括基本信息、运行时长、NPU 资源使用、脚本代码、参数配置和环境变量。
-
-请你综合分析这些信息，并严格按照以下 JSON 格式返回结果，不要输出任何其他内容：
+const systemPrompt = `你是一个专业的 NPU（华为昇腾）作业分析助手。请根据用户提供的作业信息进行分析，严格按以下 JSON 格式返回，不要输出其他内容：
 
 {
-  "summary": "100字以内的作业概要描述，包含作业类型、模型名称、运行时长等关键信息",
+  "summary": "200字以内的作业概要，包含作业类型、模型名称、运行时长、资源使用等关键信息",
   "taskType": {
     "category": "training / inference / unknown",
     "subCategory": "pre-training / fine-tuning / rlhf / evaluation / serving / batch-inference 或 null",
-    "inferenceFramework": "推理框架名称如 vLLM / TGI / MindIE / Triton 或 null",
-    "evidence": "判断依据，说明从哪些信息得出此结论"
+    "inferenceFramework": "vLLM / TGI / MindIE / Triton 或 null",
+    "evidence": "判断依据"
   },
   "modelInfo": {
     "modelName": "模型名称或null",
-    "modelSize": "模型大小如7B/13B/70B或null",
-    "precision": "精度如fp16/bf16/int8/int4或null",
-    "parallelStrategy": "并行策略如TP=8/PP=2或null"
+    "modelSize": "7B/13B/70B或null",
+    "precision": "fp16/bf16/int8/int4或null",
+    "parallelStrategy": "TP=8/PP=2或null"
   },
   "runtimeAnalysis": {
     "duration": "运行时长的可读描述",
     "status": "normal / long-running / just-started / completed",
-    "description": "对运行时长的分析说明，如推理服务长期运行是否正常、训练任务预计时长是否合理等"
+    "description": "运行时长分析说明"
   },
   "parameterCheck": {
     "status": "normal / warning / abnormal",
     "items": [
-      {
-        "parameter": "参数名称",
-        "value": "当前值",
-        "assessment": "normal / warning / abnormal",
-        "reason": "判断理由"
-      }
+      {"parameter": "参数名", "value": "当前值", "assessment": "normal/warning/abnormal", "reason": "理由"}
     ]
   },
   "resourceAssessment": {
     "npuUtilization": "high / medium / low / idle",
     "hbmUtilization": "high / medium / low",
-    "description": "资源使用情况的简要描述"
+    "description": "资源使用简述"
   },
   "issues": [
-    {
-      "severity": "critical / warning / info",
-      "category": "问题分类",
-      "description": "问题描述",
-      "suggestion": "改进建议"
-    }
-  ],
-  "suggestions": ["优化建议1", "优化建议2"]
+    {"severity": "critical/warning/info", "category": "分类", "description": "描述", "suggestion": "建议"}
+  ]
 }
 
-分析要点（按优先级排列）：
+分析要点：
 
-1. **作业类型识别**（最重要）
-   - 综合命令行、进程名、脚本内容、框架、环境变量判断是训练还是推理
-   - 训练子类型：预训练(pre-training)、微调(fine-tuning)、RLHF、评估(evaluation)
-   - 推理子类型：在线服务(serving)、批量推理(batch-inference)
-   - 在 evidence 字段说明判断依据
+1. **作业类型识别**：综合命令行、进程名、脚本、框架、环境变量判断训练/推理，在 evidence 说明依据。
+2. **模型识别**：从命令行、脚本路径、配置、环境变量提取模型名称、大小、精度、并行策略（TP/PP/DP）。
+3. **运行时长**：结合作业类型判断时长是否合理。推理服务长期运行正常；训练根据模型大小评估；批量推理过长可能有性能问题。
+4. **参数检查**：
+   - 训练：learning_rate（1e-3~1e-6）、batch_size 与显存匹配、warmup_steps、gradient_accumulation
+   - 推理：max_tokens/max_model_len、tensor_parallel_size 与卡数一致性、gpu_memory_utilization
+   - 通用：不必要的调试选项、HCCL 通信参数
+5. **资源评估**：AICore 使用率、HBM 使用、多卡均衡性、功耗与利用率匹配度。
 
-2. **模型识别**
-   - 从命令行参数、脚本路径、配置文件、环境变量中提取模型名称和大小
-   - 识别精度设置（fp16/bf16/int8/int4/混合精度）
-   - 识别并行策略（TP/PP/DP 及其数值）
-
-3. **运行时长分析**
-   - 结合作业类型判断运行时长是否合理
-   - 推理服务(serving)：长期运行是正常的
-   - 训练任务：根据模型大小和数据量评估时长是否合理
-   - 批量推理：运行时间过长可能说明有性能问题
-
-4. **参数合理性检查**（重点）
-   - 训练场景：learning_rate 量级是否合理（通常1e-3~1e-6）、batch_size 与显存是否匹配、warmup_steps 是否合理、gradient_accumulation_steps 设置
-   - 推理场景：max_tokens/max_model_len 是否合理、tensor_parallel_size 与实际卡数是否一致、gpu_memory_utilization 设置、max_batch_size/max_num_seqs 是否合理
-   - 通用：是否开启了不必要的调试选项（如 TORCH_LOGS、TORCHDYNAMO_VERBOSE）、HCCL 通信相关参数是否正确
-   - 每个有问题的参数单独列出，说明当前值和建议值
-
-5. **资源评估**
-   - NPU AICore 使用率和 HBM 使用情况
-   - 多卡场景下各卡是否均衡
-   - 功耗是否与利用率匹配（高功耗低利用率可能有问题）
-
-如果某些信息无法确定，对应字段填 null。modelInfo 整体可以为 null。
-parameterCheck.items、issues 和 suggestions 数组可以为空但不能为 null。`
+重要规则：
+- 信息不足时如实填 null，不要猜测或编造。modelInfo 整体可为 null。
+- parameterCheck.items 和 issues 可以为空数组 []，但不能为 null。
+- 如果缺少脚本、参数等关键信息，在 summary 中说明"因信息有限，部分分析可能不完整"。
+- issues 中每条已包含 suggestion，不需要单独的 suggestions 字段。`
