@@ -76,7 +76,7 @@ const JobDetail: React.FC = () => {
     if (childDetailMap[key]) return;
     setChildLoadingMap(prev => ({ ...prev, [key]: true }));
     try {
-      const data = await jobApi.getJobById(key);
+      const data = await jobApi.getJobById(key, false);
       setChildDetailMap(prev => ({ ...prev, [key]: data }));
     } catch {
       // 加载失败静默处理

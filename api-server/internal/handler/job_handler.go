@@ -104,8 +104,9 @@ func (h *JobHandler) GetJobs(c *gin.Context) {
 // GetJobByID 获取作业详情（含 NPU 卡信息和关联进程）
 func (h *JobHandler) GetJobByID(c *gin.Context) {
 	jobID := c.Param("jobId")
+	aggregate := c.DefaultQuery("aggregate", "true") != "false"
 
-	detail, err := h.jobService.GetJobDetail(jobID)
+	detail, err := h.jobService.GetJobDetail(jobID, aggregate)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			utils.ErrorResponse(c, 404, "Job not found")

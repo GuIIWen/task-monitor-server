@@ -200,7 +200,7 @@ func (s *LLMService) buildUserPrompt(jobID string) (string, error) {
 	var sb strings.Builder
 
 	// 获取作业详情
-	detail, err := s.jobService.GetJobDetail(jobID)
+	detail, err := s.jobService.GetJobDetail(jobID, true)
 	if err != nil {
 		return "", fmt.Errorf("get job detail: %w", err)
 	}

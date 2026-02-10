@@ -15,8 +15,8 @@ export const jobApi = {
   /**
    * 获取作业详情
    */
-  getJobById: async (jobId: string): Promise<JobDetailResponse> => {
-    return apiClient.get(`/jobs/${jobId}`);
+  getJobById: async (jobId: string, aggregate = true): Promise<JobDetailResponse> => {
+    return apiClient.get(`/jobs/${jobId}`, { params: aggregate ? undefined : { aggregate: 'false' } });
   },
 
   /**

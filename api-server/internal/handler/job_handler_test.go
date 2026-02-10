@@ -69,8 +69,8 @@ func (m *MockJobService) GetDistinctCardCounts() ([]int, error) {
 	return args.Get(0).([]int), args.Error(1)
 }
 
-func (m *MockJobService) GetJobDetail(jobID string) (*service.JobDetailResponse, error) {
-	args := m.Called(jobID)
+func (m *MockJobService) GetJobDetail(jobID string, aggregate bool) (*service.JobDetailResponse, error) {
+	args := m.Called(jobID, aggregate)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

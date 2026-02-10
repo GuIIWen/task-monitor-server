@@ -25,8 +25,8 @@ func (m *MockJobServiceForLLM) GetJobByID(jobID string) (*model.Job, error) {
 	return args.Get(0).(*model.Job), args.Error(1)
 }
 
-func (m *MockJobServiceForLLM) GetJobDetail(jobID string) (*JobDetailResponse, error) {
-	args := m.Called(jobID)
+func (m *MockJobServiceForLLM) GetJobDetail(jobID string, aggregate bool) (*JobDetailResponse, error) {
+	args := m.Called(jobID, aggregate)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

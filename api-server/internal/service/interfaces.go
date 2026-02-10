@@ -109,7 +109,7 @@ type LLMServiceInterface interface {
 // JobServiceInterface defines the interface for job service operations
 type JobServiceInterface interface {
 	GetJobByID(jobID string) (*model.Job, error)
-	GetJobDetail(jobID string) (*JobDetailResponse, error)
+	GetJobDetail(jobID string, aggregate bool) (*JobDetailResponse, error)
 	GetJobsByNodeID(nodeID string) ([]model.Job, error)
 	GetJobsByStatus(status string) ([]model.Job, error)
 	GetAllJobs() ([]model.Job, error)

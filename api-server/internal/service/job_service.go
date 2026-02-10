@@ -37,7 +37,9 @@ func (s *JobService) GetJobByID(jobID string) (*model.Job, error) {
 }
 
 // GetJobDetail 获取作业详情（含 NPU 卡信息和关联进程）
-func (s *JobService) GetJobDetail(jobID string) (*JobDetailResponse, error) {
+// aggregate=true 时会聚合同组子进程的 NPU 数据（用于主作业详情页）；
+// aggregate=false 时只查询该进程自身的 NPU 数据（用于子进程展开详情）。
+func (s *JobService) GetJobDetail(jobID string, aggregate bool) (*JobDetailResponse, error) {
 	job, err := s.jobRepo.FindByID(jobID)
 	if err != nil {
 		return nil, err
@@ -61,8 +63,8 @@ func (s *JobService) GetJobDetail(jobID string) (*JobDetailResponse, error) {
 		return resp, nil // NPU 查询失败不影响基本信息
 	}
 
-	// 1.1 主进程无 NPU 记录时，尝试聚合同组子进程的 NPU 数据
-	if len(npuProcs) == 0 && job.PGID != nil {
+	// 1.1 主进程无 NPU 记录时，尝试聚合同组子进程的 NPU 数据（仅 aggregate 模式）
+	if aggregate && len(npuProcs) == 0 && job.PGID != nil {
 		relatedJobs, err := s.jobRepo.FindByNodeIDAndPGID(nodeID, *job.PGID)
 		if err == nil && len(relatedJobs) > 0 {
 			var childPIDs []int64
@@ -83,7 +85,8 @@ func (s *JobService) GetJobDetail(jobID string) (*JobDetailResponse, error) {
 	// 1.2 终态作业兜底：running 状态查不到 NPU 记录时，按 running+stopped 重查
 	if len(npuProcs) == 0 && isTerminalJobStatus(job.Status) {
 		allPIDs := []int64{pid}
-		if job.PGID != nil {
+		// aggregate 模式下才聚合同组兄弟进程
+		if aggregate && job.PGID != nil {
 			relatedJobs, err := s.jobRepo.FindByNodeIDAndPGID(nodeID, *job.PGID)
 			if err == nil {
 				for _, rj := range relatedJobs {
@@ -151,8 +154,8 @@ func (s *JobService) GetJobDetail(jobID string) (*JobDetailResponse, error) {
 		}
 	}
 
-	// 5. 查关联 NPU 进程（同 pgid 范围内 Union-Find）
-	if job.PGID != nil {
+	// 5. 查关联 NPU 进程（同 pgid 范围内 Union-Find），仅 aggregate 模式
+	if aggregate && job.PGID != nil {
 		resp.RelatedJobs = s.findRelatedNPUJobs(job)
 	}
 

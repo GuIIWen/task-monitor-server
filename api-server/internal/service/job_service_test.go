@@ -965,7 +965,7 @@ func TestJobService_GetJobDetail_WithNPU(t *testing.T) {
 		return len(pids) == 1 && pids[0] == 101
 	})).Return(npuMap, nil)
 
-	detail, err := svc.GetJobDetail("job-001")
+	detail, err := svc.GetJobDetail("job-001", true)
 
 	assert.NoError(t, err)
 	assert.NotNil(t, detail)
@@ -1018,7 +1018,7 @@ func TestJobService_GetJobDetail_DeduplicateNPUCards(t *testing.T) {
 		return len(ids) == 2
 	})).Return(metrics, nil)
 
-	detail, err := svc.GetJobDetail("job-001")
+	detail, err := svc.GetJobDetail("job-001", true)
 
 	assert.NoError(t, err)
 	assert.NotNil(t, detail)
@@ -1053,7 +1053,7 @@ func TestJobService_GetJobDetail_NoNPU(t *testing.T) {
 	mockJobRepo.On("FindByID", "job-001").Return(job, nil)
 	mockMetricsRepo.On("FindNPUProcessesByPID", nodeID, pid).Return([]model.NPUProcess{}, nil)
 
-	detail, err := svc.GetJobDetail("job-001")
+	detail, err := svc.GetJobDetail("job-001", true)
 
 	assert.NoError(t, err)
 	assert.NotNil(t, detail)
@@ -1074,7 +1074,7 @@ func TestJobService_GetJobDetail_NotFound(t *testing.T) {
 
 	mockJobRepo.On("FindByID", "non-existent").Return(nil, errors.New("record not found"))
 
-	detail, err := svc.GetJobDetail("non-existent")
+	detail, err := svc.GetJobDetail("non-existent", true)
 
 	assert.Error(t, err)
 	assert.Nil(t, detail)
