@@ -30,15 +30,20 @@ var (
 
 // JobHandler 作业处理器
 type JobHandler struct {
-	jobService service.JobServiceInterface
-	llmService service.LLMServiceInterface
+	jobService       service.JobServiceInterface
+	llmService       service.LLMServiceInterface
+	batchConcurrency int
 }
 
 // NewJobHandler 创建作业处理器
-func NewJobHandler(jobService service.JobServiceInterface, llmService service.LLMServiceInterface) *JobHandler {
+func NewJobHandler(jobService service.JobServiceInterface, llmService service.LLMServiceInterface, batchConcurrency int) *JobHandler {
+	if batchConcurrency <= 0 {
+		batchConcurrency = 5
+	}
 	return &JobHandler{
-		jobService: jobService,
-		llmService: llmService,
+		jobService:       jobService,
+		llmService:       llmService,
+		batchConcurrency: batchConcurrency,
 	}
 }
 
@@ -260,14 +265,23 @@ func (h *JobHandler) BatchAnalyze(c *gin.Context) {
 	batchStates.Store(batchID, state)
 
 	go func() {
+		sem := make(chan struct{}, h.batchConcurrency)
+		var wg sync.WaitGroup
 		for _, jobID := range req.JobIDs {
-			if _, err := h.llmService.AnalyzeJob(jobID); err != nil {
-				atomic.AddInt64(&state.Failed, 1)
-			} else {
-				atomic.AddInt64(&state.Success, 1)
-			}
-			atomic.AddInt64(&state.Current, 1)
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(id string) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				if _, err := h.llmService.AnalyzeJob(id); err != nil {
+					atomic.AddInt64(&state.Failed, 1)
+				} else {
+					atomic.AddInt64(&state.Success, 1)
+				}
+				atomic.AddInt64(&state.Current, 1)
+			}(jobID)
 		}
+		wg.Wait()
 		state.Status = "done"
 	}()
 

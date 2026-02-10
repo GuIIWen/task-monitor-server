@@ -25,11 +25,12 @@ type JWTConfig struct {
 
 // LLMConfig LLM服务配置
 type LLMConfig struct {
-	Enabled  bool   `yaml:"enabled" json:"enabled"`
-	Endpoint string `yaml:"endpoint" json:"endpoint"`
-	APIKey   string `yaml:"api_key" json:"api_key"`
-	Model    string `yaml:"model" json:"model"`
-	Timeout  int    `yaml:"timeout" json:"timeout"`
+	Enabled          bool   `yaml:"enabled" json:"enabled"`
+	Endpoint         string `yaml:"endpoint" json:"endpoint"`
+	APIKey           string `yaml:"api_key" json:"api_key"`
+	Model            string `yaml:"model" json:"model"`
+	Timeout          int    `yaml:"timeout" json:"timeout"`
+	BatchConcurrency int    `yaml:"batch_concurrency" json:"batch_concurrency"`
 }
 
 // ServerConfig 服务器配置

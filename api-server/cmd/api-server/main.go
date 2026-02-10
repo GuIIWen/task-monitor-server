@@ -66,7 +66,7 @@ func main() {
 
 	// 初始化Handler
 	nodeHandler := handler.NewNodeHandler(nodeService)
-	jobHandler := handler.NewJobHandler(jobService, llmService)
+	jobHandler := handler.NewJobHandler(jobService, llmService, cfg.LLM.BatchConcurrency)
 	configHandler := handler.NewConfigHandler(llmService, cfg, *configPath)
 	authHandler := handler.NewAuthHandler(authService)
 
