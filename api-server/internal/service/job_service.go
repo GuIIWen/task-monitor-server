@@ -183,6 +183,10 @@ func (s *JobService) GetJobDetail(jobID string, aggregate bool) (*JobDetailRespo
 					metricsByNPU[*m.NPUID] = append(metricsByNPU[*m.NPUID], m)
 				}
 			}
+			// 子进程视图：过滤空闲 chip，只保留实际使用的
+			if !aggregate && isTerminalJobStatus(job.Status) {
+				metricsByNPU = filterActiveChips(metricsByNPU)
+			}
 		}
 
 		// 3.1 npu_metrics 为空时，从 npu_processes.card_metrics_snapshot 回退
@@ -615,6 +619,53 @@ func parseSnapshotMetrics(npuProcs []model.NPUProcess, nodeID string) []model.NP
 		}
 	}
 	return result
+}
+
+// filterActiveChips 过滤空闲 chip：对每张卡（npu_id），如果最大 HBM 的 chip
+// 比最小 HBM 的 chip 高出 2 倍以上，则只保留 HBM 超过最大值 30% 的 chip。
+func filterActiveChips(metricsByNPU map[int][]model.NPUMetric) map[int][]model.NPUMetric {
+	for npuID, chips := range metricsByNPU {
+		if len(chips) <= 1 {
+			continue
+		}
+		var maxHBM, minHBM float64
+		first := true
+		for _, c := range chips {
+			hbm := float64(0)
+			if c.HBMUsageMB != nil {
+				hbm = *c.HBMUsageMB
+			}
+			if first {
+				maxHBM, minHBM = hbm, hbm
+				first = false
+			} else {
+				if hbm > maxHBM {
+					maxHBM = hbm
+				}
+				if hbm < minHBM {
+					minHBM = hbm
+				}
+			}
+		}
+		if minHBM <= 0 || maxHBM < minHBM*2 {
+			continue
+		}
+		threshold := maxHBM * 0.3
+		filtered := make([]model.NPUMetric, 0, len(chips))
+		for _, c := range chips {
+			hbm := float64(0)
+			if c.HBMUsageMB != nil {
+				hbm = *c.HBMUsageMB
+			}
+			if hbm >= threshold {
+				filtered = append(filtered, c)
+			}
+		}
+		if len(filtered) > 0 {
+			metricsByNPU[npuID] = filtered
+		}
+	}
+	return metricsByNPU
 }
 
 func hasNPUForAnyPID(npuMap map[int64][]int, pids []int64) bool {
