@@ -272,20 +272,41 @@ func (s *JobService) GetJobs(nodeID string, statuses []string, jobTypes []string
 
 // findRelatedNPUJobs 查找同组的 NPU 关联进程（排除自身）
 func (s *JobService) findRelatedNPUJobs(job *model.Job) []model.Job {
-	if job.NodeID == nil || job.PGID == nil || job.PID == nil {
+	if job.NodeID == nil || job.PID == nil {
 		return nil
 	}
 	nodeID := *job.NodeID
-	pgid := *job.PGID
+	pid := *job.PID
 
 	// 查同 pgid 的所有 jobs
-	samePGIDJobs, err := s.jobRepo.FindByNodeIDAndPGID(nodeID, pgid)
-	if err != nil || len(samePGIDJobs) <= 1 {
+	var allJobs []model.Job
+	if job.PGID != nil {
+		pgidJobs, err := s.jobRepo.FindByNodeIDAndPGID(nodeID, *job.PGID)
+		if err == nil {
+			allJobs = append(allJobs, pgidJobs...)
+		}
+	}
+
+	// 按 PPID 查找子进程（训练启动器的 worker 可能有独立 PGID）
+	ppidChildren, err := s.jobRepo.FindByNodeIDAndPPID(nodeID, pid)
+	if err == nil {
+		seen := make(map[string]bool, len(allJobs))
+		for _, j := range allJobs {
+			seen[j.JobID] = true
+		}
+		for _, cj := range ppidChildren {
+			if !seen[cj.JobID] {
+				allJobs = append(allJobs, cj)
+			}
+		}
+	}
+
+	if len(allJobs) <= 1 {
 		return nil
 	}
 
-	parent := make([]int, len(samePGIDJobs))
-	for i := range samePGIDJobs {
+	parent := make([]int, len(allJobs))
+	for i := range allJobs {
 		parent[i] = i
 	}
 
@@ -306,19 +327,19 @@ func (s *JobService) findRelatedNPUJobs(job *model.Job) []model.Job {
 	}
 
 	pidIndexes := make(map[int64][]int)
-	for i, j := range samePGIDJobs {
+	for i, j := range allJobs {
 		if j.PID == nil {
 			continue
 		}
 		pidIndexes[*j.PID] = append(pidIndexes[*j.PID], i)
 	}
 
-	for i, j := range samePGIDJobs {
+	for i, j := range allJobs {
 		if j.PID == nil || j.PPID == nil {
 			continue
 		}
 		candidates := pidIndexes[*j.PPID]
-		parentIdx := chooseParentProcessIndex(samePGIDJobs, candidates, i)
+		parentIdx := chooseParentProcessIndex(allJobs, candidates, i)
 		if parentIdx == -1 {
 			continue
 		}
@@ -327,8 +348,8 @@ func (s *JobService) findRelatedNPUJobs(job *model.Job) []model.Job {
 
 	// 兜底：同 pgid 的进程合并（ppid 链断裂时靠 pgid 兜底，与 buildGroupedJobs 一致）
 	firstIdx := -1
-	for i := range samePGIDJobs {
-		if samePGIDJobs[i].PID == nil {
+	for i := range allJobs {
+		if allJobs[i].PID == nil {
 			continue
 		}
 		if firstIdx == -1 {
@@ -339,8 +360,8 @@ func (s *JobService) findRelatedNPUJobs(job *model.Job) []model.Job {
 	}
 
 	selfIdx := -1
-	for i := range samePGIDJobs {
-		if samePGIDJobs[i].JobID == job.JobID {
+	for i := range allJobs {
+		if allJobs[i].JobID == job.JobID {
 			selfIdx = i
 			break
 		}
@@ -351,7 +372,7 @@ func (s *JobService) findRelatedNPUJobs(job *model.Job) []model.Job {
 
 	selfRoot := find(selfIdx)
 	groupPIDs := make([]int64, 0)
-	for i, j := range samePGIDJobs {
+	for i, j := range allJobs {
 		if i == selfIdx || j.PID == nil {
 			continue
 		}
@@ -381,7 +402,7 @@ func (s *JobService) findRelatedNPUJobs(job *model.Job) []model.Job {
 	}
 
 	var related []model.Job
-	for i, j := range samePGIDJobs {
+	for i, j := range allJobs {
 		if i == selfIdx || j.PID == nil {
 			continue
 		}
