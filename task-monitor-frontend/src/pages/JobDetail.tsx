@@ -191,15 +191,14 @@ const JobDetail: React.FC = () => {
       },
     },
     {
-      title: '进程 HBM 占用',
+      title: 'HBM 占用',
       key: 'processHbm',
       width: 180,
       render: (_, record) => {
-        const used = record.memoryUsageMb;
+        const used = record.metric?.hbmUsageMb;
         const total = record.metric?.hbmTotalMb;
-        if (used == null) return '-';
-        if (total == null || total <= 0) return `${used.toFixed(0)} MB`;
-        const pct = Number(((used / total) * 100).toFixed(1));
+        if (used == null || total == null) return '-';
+        const pct = total > 0 ? Number(((used / total) * 100).toFixed(1)) : 0;
         return (
           <Space direction="vertical" size={0} style={{ width: '100%' }}>
             <Progress percent={pct} size="small" />
