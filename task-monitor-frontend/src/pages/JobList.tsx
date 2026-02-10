@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Table, Space, Button, Tag, Modal, Progress } from 'antd';
+import { Table, Space, Button, Tag, Modal, Progress, Tooltip } from 'antd';
 import { CheckCircleOutlined, WarningOutlined, LoadingOutlined, MinusOutlined, ExpandOutlined, CloseOutlined } from '@ant-design/icons';
 import type { TablePaginationConfig, SorterResult, FilterValue } from 'antd/es/table/interface';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -391,14 +391,47 @@ const JobList: React.FC = () => {
                   {analysis.runtimeAnalysis?.duration && (
                     <Tag style={{ margin: 0 }}>{analysis.runtimeAnalysis.duration}</Tag>
                   )}
-                  {analysis.issues && analysis.issues.length > 0 && (
-                    <Tag
-                      color={analysis.issues.some((i: any) => i.severity === 'critical') ? 'red' : 'orange'}
-                      style={{ margin: 0 }}
-                    >
-                      {analysis.issues.length}个问题
-                    </Tag>
-                  )}
+                  {(() => {
+                    const issues = analysis.issues || [];
+                    const count = issues.length;
+                    const color = count === 0 ? 'default' : count <= 2 ? 'orange' : 'red';
+                    const tag = (
+                      <Tag color={color} style={{ margin: 0, cursor: count > 0 ? 'pointer' : 'default' }}>
+                        {count}个问题
+                      </Tag>
+                    );
+                    if (count === 0) return tag;
+                    return (
+                      <Tooltip
+                        title={
+                          <div style={{ maxWidth: 360 }}>
+                            {issues.map((issue: any, idx: number) => (
+                              <div key={idx} style={{ marginBottom: idx < count - 1 ? 8 : 0 }}>
+                                <div>
+                                  <Tag
+                                    color={issue.severity === 'critical' ? 'red' : issue.severity === 'warning' ? 'orange' : 'blue'}
+                                    style={{ margin: '0 4px 0 0' }}
+                                  >
+                                    {issue.severity}
+                                  </Tag>
+                                  <span style={{ fontWeight: 500 }}>{issue.category}</span>
+                                </div>
+                                <div style={{ marginTop: 2, color: 'rgba(255,255,255,0.85)' }}>{issue.description}</div>
+                                {issue.suggestion && (
+                                  <div style={{ marginTop: 2, color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>
+                                    建议：{issue.suggestion}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        }
+                        overlayStyle={{ maxWidth: 400 }}
+                      >
+                        {tag}
+                      </Tooltip>
+                    );
+                  })()}
                 </div>
                 <span style={{ color: '#ddd', flexShrink: 0 }}>|</span>
                 <span style={{
