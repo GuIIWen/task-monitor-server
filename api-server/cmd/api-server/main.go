@@ -87,56 +87,45 @@ func main() {
 	api := r.Group("/api/v1")
 	{
 		// 公开路由（不需要认证）
-		auth := api.Group("/auth")
-		{
-			auth.POST("/login", authHandler.Login)
-		}
+		api.POST("/auth/login", authHandler.Login)
 
-		// 需要认证的路由
-		api.Use(middleware.JWTAuth(authService))
+		// 节点（只读）
+		api.GET("/nodes", nodeHandler.GetNodes)
+		api.GET("/nodes/stats", nodeHandler.GetNodeStats)
+		api.GET("/nodes/:nodeId", nodeHandler.GetNodeByID)
 
-		// 当前用户
-		api.GET("/auth/me", authHandler.GetCurrentUser)
+		// 作业（只读）
+		api.GET("/jobs", jobHandler.GetJobs)
+		api.GET("/jobs/grouped", jobHandler.GetGroupedJobs)
+		api.GET("/jobs/grouped/card-counts", jobHandler.GetDistinctCardCounts)
+		api.GET("/jobs/stats", jobHandler.GetJobStats)
+		api.GET("/jobs/batch-analyze/:batchId", jobHandler.GetBatchAnalyzeProgress)
+		api.GET("/jobs/:jobId", jobHandler.GetJobByID)
+		api.GET("/jobs/:jobId/parameters", jobHandler.GetJobParameters)
+		api.GET("/jobs/:jobId/code", jobHandler.GetJobCode)
+		api.GET("/jobs/:jobId/analysis", jobHandler.GetJobAnalysis)
+
+		// 配置（只读）
+		api.GET("/config/llm", configHandler.GetLLMConfig)
+
+		// === 以下路由需要认证 ===
+		authed := api.Group("")
+		authed.Use(middleware.JWTAuth(authService))
+
+		authed.GET("/auth/me", authHandler.GetCurrentUser)
 
 		// 用户管理
-		users := api.Group("/users")
-		{
-			users.GET("", authHandler.ListUsers)
-			users.POST("", authHandler.CreateUser)
-			users.PUT("/:id/password", authHandler.ChangePassword)
-			users.DELETE("/:id", authHandler.DeleteUser)
-		}
+		authed.GET("/users", authHandler.ListUsers)
+		authed.POST("/users", authHandler.CreateUser)
+		authed.PUT("/users/:id/password", authHandler.ChangePassword)
+		authed.DELETE("/users/:id", authHandler.DeleteUser)
 
-		// 节点相关路由
-		nodes := api.Group("/nodes")
-		{
-			nodes.GET("", nodeHandler.GetNodes)
-			nodes.GET("/stats", nodeHandler.GetNodeStats)
-			nodes.GET("/:nodeId", nodeHandler.GetNodeByID)
-		}
+		// 作业分析（写操作）
+		authed.POST("/jobs/batch-analyze", jobHandler.BatchAnalyze)
+		authed.POST("/jobs/:jobId/analyze", jobHandler.AnalyzeJob)
 
-		// 作业相关路由
-		jobs := api.Group("/jobs")
-		{
-			jobs.GET("", jobHandler.GetJobs)
-			jobs.GET("/grouped", jobHandler.GetGroupedJobs)
-			jobs.GET("/grouped/card-counts", jobHandler.GetDistinctCardCounts)
-			jobs.GET("/stats", jobHandler.GetJobStats)
-			jobs.POST("/batch-analyze", jobHandler.BatchAnalyze)
-			jobs.GET("/batch-analyze/:batchId", jobHandler.GetBatchAnalyzeProgress)
-			jobs.GET("/:jobId", jobHandler.GetJobByID)
-			jobs.GET("/:jobId/parameters", jobHandler.GetJobParameters)
-			jobs.GET("/:jobId/code", jobHandler.GetJobCode)
-			jobs.POST("/:jobId/analyze", jobHandler.AnalyzeJob)
-			jobs.GET("/:jobId/analysis", jobHandler.GetJobAnalysis)
-		}
-
-		// 配置相关路由
-		cfgGroup := api.Group("/config")
-		{
-			cfgGroup.GET("/llm", configHandler.GetLLMConfig)
-			cfgGroup.PUT("/llm", configHandler.UpdateLLMConfig)
-		}
+		// 配置修改
+		authed.PUT("/config/llm", configHandler.UpdateLLMConfig)
 	}
 
 	// 启动服务器

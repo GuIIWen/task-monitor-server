@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Form, Input, Button, Card, message, Typography } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { authApi } from '@/api/auth';
 import { useAuthStore } from '@/stores/useAuthStore';
 
@@ -10,7 +10,9 @@ const { Title } = Typography;
 const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const setAuth = useAuthStore((s) => s.setAuth);
+  const from = (location.state as any)?.from || '/';
 
   const handleLogin = async (values: { username: string; password: string }) => {
     try {
@@ -18,7 +20,7 @@ const Login: React.FC = () => {
       const res = await authApi.login(values);
       setAuth(res.token, res.username);
       message.success('登录成功');
-      navigate('/', { replace: true });
+      navigate(from, { replace: true });
     } catch (err: any) {
       message.error(err.message || '登录失败');
     } finally {

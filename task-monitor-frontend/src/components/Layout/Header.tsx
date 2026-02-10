@@ -1,6 +1,6 @@
 import React from 'react';
 import { Layout, Typography, Button, Space } from 'antd';
-import { DashboardOutlined, LogoutOutlined, UserOutlined } from '@ant-design/icons';
+import { DashboardOutlined, LogoutOutlined, UserOutlined, LoginOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/useAuthStore';
 
@@ -9,11 +9,10 @@ const { Title } = Typography;
 
 const Header: React.FC = () => {
   const navigate = useNavigate();
-  const { username, logout } = useAuthStore();
+  const { username, isAuthenticated, logout } = useAuthStore();
 
   const handleLogout = () => {
     logout();
-    navigate('/login', { replace: true });
   };
 
   return (
@@ -30,18 +29,29 @@ const Header: React.FC = () => {
           Task Monitor
         </Title>
       </div>
-      <Space>
-        <UserOutlined style={{ color: '#fff' }} />
-        <span style={{ color: '#fff' }}>{username || ''}</span>
+      {isAuthenticated ? (
+        <Space>
+          <UserOutlined style={{ color: '#fff' }} />
+          <span style={{ color: '#fff' }}>{username}</span>
+          <Button
+            type="text"
+            icon={<LogoutOutlined />}
+            onClick={handleLogout}
+            style={{ color: '#fff' }}
+          >
+            退出
+          </Button>
+        </Space>
+      ) : (
         <Button
           type="text"
-          icon={<LogoutOutlined />}
-          onClick={handleLogout}
+          icon={<LoginOutlined />}
+          onClick={() => navigate('/login')}
           style={{ color: '#fff' }}
         >
-          退出
+          登录
         </Button>
-      </Space>
+      )}
     </AntHeader>
   );
 };

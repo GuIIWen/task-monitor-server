@@ -1,6 +1,5 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
-import AuthGuard from '@/components/AuthGuard';
 import Login from '@/pages/Login';
 import Dashboard from '@/pages/Dashboard';
 import NodeList from '@/pages/NodeList';
@@ -16,7 +15,7 @@ export const router = createBrowserRouter([
   },
   {
     path: '/',
-    element: <AuthGuard><Layout /></AuthGuard>,
+    element: <Layout />,
     children: [
       {
         index: true,
