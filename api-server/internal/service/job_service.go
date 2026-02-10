@@ -1,12 +1,24 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 
 	"github.com/task-monitor/api-server/internal/model"
 	"github.com/task-monitor/api-server/internal/repository"
 )
+
+// chipSnapshot 与 agent 端 chipSnapshot 结构一致，用于解析 card_metrics_snapshot JSON
+type chipSnapshot struct {
+	BusID              string  `json:"busId"`
+	Health             string  `json:"health"`
+	PowerW             float64 `json:"powerW"`
+	TempC              float64 `json:"tempC"`
+	AICoreUsagePercent float64 `json:"aicorePercent"`
+	HBMUsageMB         float64 `json:"hbmUsageMb"`
+	HBMTotalMB         float64 `json:"hbmTotalMb"`
+}
 
 // JobService 作业服务
 type JobService struct {
@@ -138,6 +150,16 @@ func (s *JobService) GetJobDetail(jobID string, aggregate bool) (*JobDetailRespo
 		}
 		if err == nil {
 			for _, m := range metrics {
+				if m.NPUID != nil {
+					metricsByNPU[*m.NPUID] = append(metricsByNPU[*m.NPUID], m)
+				}
+			}
+		}
+
+		// 3.1 npu_metrics 为空时，从 npu_processes.card_metrics_snapshot 回退
+		if len(metricsByNPU) == 0 {
+			snapshotMetrics := parseSnapshotMetrics(npuProcs, nodeID)
+			for _, m := range snapshotMetrics {
 				if m.NPUID != nil {
 					metricsByNPU[*m.NPUID] = append(metricsByNPU[*m.NPUID], m)
 				}
@@ -518,6 +540,52 @@ func isTerminalJobStatus(status *string) bool {
 	default:
 		return false
 	}
+}
+
+// parseSnapshotMetrics 从 npu_processes 的 card_metrics_snapshot 字段解析出 NPUMetric 列表。
+// 当 npu_metrics 表数据已被清理时，用此快照作为回退数据源。
+func parseSnapshotMetrics(npuProcs []model.NPUProcess, nodeID string) []model.NPUMetric {
+	var result []model.NPUMetric
+	seen := make(map[int]bool) // 按 npu_id 去重，每张卡只取一次快照
+
+	for _, np := range npuProcs {
+		if np.NPUID == nil || np.CardMetricsSnapshot == nil || *np.CardMetricsSnapshot == "" {
+			continue
+		}
+		npuID := *np.NPUID
+		if seen[npuID] {
+			continue
+		}
+		seen[npuID] = true
+
+		var chips []chipSnapshot
+		if err := json.Unmarshal([]byte(*np.CardMetricsSnapshot), &chips); err != nil {
+			continue
+		}
+
+		for _, chip := range chips {
+			busID := chip.BusID
+			health := chip.Health
+			powerW := chip.PowerW
+			tempC := chip.TempC
+			aicore := chip.AICoreUsagePercent
+			hbmUsage := chip.HBMUsageMB
+			hbmTotal := chip.HBMTotalMB
+
+			result = append(result, model.NPUMetric{
+				NodeID:             &nodeID,
+				NPUID:              &npuID,
+				BusID:              &busID,
+				Health:             &health,
+				PowerW:             &powerW,
+				TempC:              &tempC,
+				AICoreUsagePercent: &aicore,
+				HBMUsageMB:         &hbmUsage,
+				HBMTotalMB:         &hbmTotal,
+			})
+		}
+	}
+	return result
 }
 
 func hasNPUForAnyPID(npuMap map[int64][]int, pids []int64) bool {
