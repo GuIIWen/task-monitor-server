@@ -215,7 +215,10 @@ const JobList: React.FC = () => {
 
     Modal.confirm({
       title: '批量分析确认',
-      content: `确定要对选中的 ${jobIds.length} 个作业进行 AI 分析吗？`,
+      content: (<div>
+        <div>{`确定要对选中的 ${jobIds.length} 个作业进行 AI 分析吗？`}</div>
+        <div style={{ marginTop: 8, color: '#999', fontSize: 12 }}>提示：批量分析数量较多时，请确保 LLM 超时时间设置足够大，避免请求超时导致分析失败。</div>
+      </div>),
       okText: '确定',
       cancelText: '取消',
       onOk: async () => {

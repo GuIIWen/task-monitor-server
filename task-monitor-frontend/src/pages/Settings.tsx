@@ -133,7 +133,7 @@ const Settings: React.FC = () => {
                     <Input placeholder="qwen2.5" />
                   </Form.Item>
                   <Form.Item name="timeout" label="超时时间（秒）" rules={[{ required: true, message: '请输入超时时间' }]}>
-                    <InputNumber min={1} max={600} style={{ width: '100%' }} />
+                    <InputNumber min={1} style={{ width: '100%' }} />
                   </Form.Item>
                   <Form.Item>
                     <Button type="primary" htmlType="submit" loading={saving}>保存配置</Button>
