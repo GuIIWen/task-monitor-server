@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Table, Space, Button, Tag, Modal, Progress } from 'antd';
 import { CheckCircleOutlined, WarningOutlined, LoadingOutlined, MinusOutlined, ExpandOutlined, CloseOutlined } from '@ant-design/icons';
 import type { TablePaginationConfig, SorterResult, FilterValue } from 'antd/es/table/interface';
@@ -101,19 +101,13 @@ const JobList: React.FC = () => {
 
   // 批量拉取当前页所有作业的分析摘要
   const [analysesMap, setAnalysesMap] = useState<Record<string, JobAnalysis>>({});
-  const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>([]);
+  const analysesMapRef = useRef(analysesMap);
+  analysesMapRef.current = analysesMap;
   useEffect(() => {
     const items = data?.items;
     if (!items || items.length === 0) return;
     const jobIds = items.map((g) => g.mainJob.jobId);
-    jobApi.getBatchAnalyses(jobIds).then((map) => {
-      setAnalysesMap(map);
-      // 自动展开有分析结果或有子任务的行
-      const autoKeys = items
-        .filter((g) => map[g.mainJob.jobId] || g.childJobs.length > 0)
-        .map((g) => g.mainJob.jobId);
-      setExpandedRowKeys(autoKeys);
-    }).catch(() => {});
+    jobApi.getBatchAnalyses(jobIds).then(setAnalysesMap).catch(() => {});
   }, [data]);
 
   // 动态生成节点筛选选项
@@ -375,6 +369,53 @@ const JobList: React.FC = () => {
     },
   ];
 
+  // 自定义行组件：在数据行下方渲染分析预览条
+  const AnalysisRow = useMemo(() => {
+    const Comp = (props: any) => {
+      const { 'data-job-id': jobId, ...restProps } = props;
+      const analysis = jobId ? analysesMapRef.current[jobId] : null;
+      if (!analysis) return <tr {...restProps} />;
+      return (
+        <>
+          <tr {...restProps} />
+          <tr className="analysis-preview-row" style={{ background: '#fafbfc' }}>
+            <td colSpan={100} style={{ padding: '6px 12px 6px 52px', borderBottom: '1px solid #f0f0f0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#555' }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+                  {analysis.modelInfo?.modelName && (
+                    <Tag color="blue" style={{ margin: 0 }}>
+                      {analysis.modelInfo.modelName}
+                      {analysis.modelInfo.modelSize ? ` ${analysis.modelInfo.modelSize}` : ''}
+                    </Tag>
+                  )}
+                  {analysis.runtimeAnalysis?.duration && (
+                    <Tag style={{ margin: 0 }}>{analysis.runtimeAnalysis.duration}</Tag>
+                  )}
+                  {analysis.issues && analysis.issues.length > 0 && (
+                    <Tag
+                      color={analysis.issues.some((i: any) => i.severity === 'critical') ? 'red' : 'orange'}
+                      style={{ margin: 0 }}
+                    >
+                      {analysis.issues.length}个问题
+                    </Tag>
+                  )}
+                </div>
+                <span style={{ color: '#ddd', flexShrink: 0 }}>|</span>
+                <span style={{
+                  flex: 1, overflow: 'hidden', textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap', color: '#888',
+                }}>
+                  {analysis.summary}
+                </span>
+              </div>
+            </td>
+          </tr>
+        </>
+      );
+    };
+    return Comp;
+  }, []);
+
   return (
     <div>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -399,48 +440,20 @@ const JobList: React.FC = () => {
           onChange: (keys) => setSelectedRowKeys(keys as string[]),
         }}
         onChange={handleTableChange}
+        onRow={(record) => ({ 'data-job-id': record.mainJob.jobId } as any)}
+        components={{ body: { row: AnalysisRow } }}
         expandable={{
-        expandedRowRender: (record) => {
-          const analysis = analysesMap[record.mainJob.jobId];
-          return (
-            <>
-              {analysis && (
-                <div style={{
-                  background: '#fafafa', padding: '8px 12px', marginBottom: record.childJobs.length > 0 ? 8 : 0,
-                  borderRadius: 4, fontSize: 13, color: '#555', display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap',
-                }}>
-                  <span style={{ flex: 1, minWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {analysis.summary}
-                  </span>
-                  {analysis.modelInfo?.modelName && (
-                    <Tag color="blue">{analysis.modelInfo.modelName}{analysis.modelInfo.modelSize ? ` ${analysis.modelInfo.modelSize}` : ''}</Tag>
-                  )}
-                  {analysis.runtimeAnalysis?.duration && (
-                    <Tag>{analysis.runtimeAnalysis.duration}</Tag>
-                  )}
-                  {analysis.issues && analysis.issues.length > 0 && (
-                    <Tag color={analysis.issues.some(i => i.severity === 'critical') ? 'red' : 'orange'}>
-                      {analysis.issues.length}个问题
-                    </Tag>
-                  )}
-                </div>
-              )}
-              {record.childJobs.length > 0 && (
-                <Table<Job>
-                  columns={childColumns}
-                  dataSource={record.childJobs}
-                  rowKey="jobId"
-                  pagination={false}
-                  size="small"
-                />
-              )}
-            </>
-          );
-        },
-        rowExpandable: (record) => record.childJobs.length > 0 || !!analysesMap[record.mainJob.jobId],
-        expandedRowKeys,
-        onExpandedRowsChange: (keys) => setExpandedRowKeys(keys as string[]),
-      }}
+          expandedRowRender: (record) => (
+            <Table<Job>
+              columns={childColumns}
+              dataSource={record.childJobs}
+              rowKey="jobId"
+              pagination={false}
+              size="small"
+            />
+          ),
+          rowExpandable: (record) => record.childJobs.length > 0,
+        }}
       pagination={{
         total: data?.pagination?.total || 0,
         pageSize: data?.pagination?.pageSize || 20,
