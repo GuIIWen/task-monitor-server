@@ -22,6 +22,17 @@ func (r *JobAnalysisRepository) FindByJobID(jobID string) (*model.JobAnalysis, e
 	return &analysis, nil
 }
 
+func (r *JobAnalysisRepository) FindByJobIDs(jobIDs []string) ([]model.JobAnalysis, error) {
+	if len(jobIDs) == 0 {
+		return []model.JobAnalysis{}, nil
+	}
+	var analyses []model.JobAnalysis
+	if err := r.db.Where("job_id IN ?", jobIDs).Find(&analyses).Error; err != nil {
+		return nil, err
+	}
+	return analyses, nil
+}
+
 func (r *JobAnalysisRepository) Upsert(analysis *model.JobAnalysis) error {
 	return r.db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "job_id"}},

@@ -8,7 +8,7 @@ import { useGroupedJobs, useDistinctCardCounts } from '@/hooks/useJobs';
 import { useNodes } from '@/hooks/useNodes';
 import { jobApi } from '@/api/job';
 import { formatTimestamp, JOB_TYPE_MAP } from '@/utils';
-import type { Job, JobListParams, JobGroup } from '@/types/job';
+import type { Job, JobListParams, JobGroup, JobAnalysis } from '@/types/job';
 
 const JobList: React.FC = () => {
   const navigate = useNavigate();
@@ -98,6 +98,23 @@ const JobList: React.FC = () => {
   const { data, isLoading } = useGroupedJobs(params);
   const { data: nodesData } = useNodes();
   const { data: cardCountsData } = useDistinctCardCounts();
+
+  // 批量拉取当前页所有作业的分析摘要
+  const [analysesMap, setAnalysesMap] = useState<Record<string, JobAnalysis>>({});
+  const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>([]);
+  useEffect(() => {
+    const items = data?.items;
+    if (!items || items.length === 0) return;
+    const jobIds = items.map((g) => g.mainJob.jobId);
+    jobApi.getBatchAnalyses(jobIds).then((map) => {
+      setAnalysesMap(map);
+      // 自动展开有分析结果或有子任务的行
+      const autoKeys = items
+        .filter((g) => map[g.mainJob.jobId] || g.childJobs.length > 0)
+        .map((g) => g.mainJob.jobId);
+      setExpandedRowKeys(autoKeys);
+    }).catch(() => {});
+  }, [data]);
 
   // 动态生成节点筛选选项
   const nodeFilters = (nodesData || []).map((n: any) => ({
@@ -383,16 +400,46 @@ const JobList: React.FC = () => {
         }}
         onChange={handleTableChange}
         expandable={{
-        expandedRowRender: (record) => (
-          <Table<Job>
-            columns={childColumns}
-            dataSource={record.childJobs}
-            rowKey="jobId"
-            pagination={false}
-            size="small"
-          />
-        ),
-        rowExpandable: (record) => record.childJobs.length > 0,
+        expandedRowRender: (record) => {
+          const analysis = analysesMap[record.mainJob.jobId];
+          return (
+            <>
+              {analysis && (
+                <div style={{
+                  background: '#fafafa', padding: '8px 12px', marginBottom: record.childJobs.length > 0 ? 8 : 0,
+                  borderRadius: 4, fontSize: 13, color: '#555', display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap',
+                }}>
+                  <span style={{ flex: 1, minWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {analysis.summary}
+                  </span>
+                  {analysis.modelInfo?.modelName && (
+                    <Tag color="blue">{analysis.modelInfo.modelName}{analysis.modelInfo.modelSize ? ` ${analysis.modelInfo.modelSize}` : ''}</Tag>
+                  )}
+                  {analysis.runtimeAnalysis?.duration && (
+                    <Tag>{analysis.runtimeAnalysis.duration}</Tag>
+                  )}
+                  {analysis.issues && analysis.issues.length > 0 && (
+                    <Tag color={analysis.issues.some(i => i.severity === 'critical') ? 'red' : 'orange'}>
+                      {analysis.issues.length}个问题
+                    </Tag>
+                  )}
+                </div>
+              )}
+              {record.childJobs.length > 0 && (
+                <Table<Job>
+                  columns={childColumns}
+                  dataSource={record.childJobs}
+                  rowKey="jobId"
+                  pagination={false}
+                  size="small"
+                />
+              )}
+            </>
+          );
+        },
+        rowExpandable: (record) => record.childJobs.length > 0 || !!analysesMap[record.mainJob.jobId],
+        expandedRowKeys,
+        onExpandedRowsChange: (keys) => setExpandedRowKeys(keys as string[]),
       }}
       pagination={{
         total: data?.pagination?.total || 0,

@@ -158,6 +158,11 @@ func (s *JobService) GetJobsByNodeID(nodeID string) ([]model.Job, error) {
 	return s.jobRepo.FindByNodeID(nodeID)
 }
 
+// UpdateJobFields 更新作业的指定字段
+func (s *JobService) UpdateJobFields(jobID string, fields map[string]interface{}) error {
+	return s.jobRepo.UpdateFields(jobID, fields)
+}
+
 // GetJobsByStatus 根据状态获取作业列表
 func (s *JobService) GetJobsByStatus(status string) ([]model.Job, error) {
 	return s.jobRepo.FindByStatus(status)

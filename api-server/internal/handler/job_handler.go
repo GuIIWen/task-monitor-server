@@ -274,6 +274,21 @@ func (h *JobHandler) BatchAnalyze(c *gin.Context) {
 	utils.SuccessResponse(c, gin.H{"batchId": batchID})
 }
 
+// GetBatchAnalyses 批量获取分析摘要
+func (h *JobHandler) GetBatchAnalyses(c *gin.Context) {
+	jobIDs := c.QueryArray("jobIds")
+	if len(jobIDs) == 0 {
+		utils.SuccessResponse(c, gin.H{})
+		return
+	}
+	result, err := h.llmService.GetBatchAnalyses(jobIDs)
+	if err != nil {
+		utils.ErrorResponse(c, 500, "failed to fetch analyses: "+err.Error())
+		return
+	}
+	utils.SuccessResponse(c, result)
+}
+
 // GetBatchAnalyzeProgress 查询批量分析进度
 func (h *JobHandler) GetBatchAnalyzeProgress(c *gin.Context) {
 	batchID := c.Param("batchId")

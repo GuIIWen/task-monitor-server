@@ -77,4 +77,11 @@ export const jobApi = {
   }> => {
     return apiClient.get(`/jobs/batch-analyze/${batchId}`);
   },
+
+  /**
+   * 批量获取分析摘要
+   */
+  getBatchAnalyses: async (jobIds: string[]): Promise<Record<string, JobAnalysis>> => {
+    return apiClient.get('/jobs/analyses/batch', { params: { jobIds } });
+  },
 };

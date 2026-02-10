@@ -21,6 +21,7 @@ type JobRepositoryInterface interface {
 	Find(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, limit, offset int) ([]model.Job, error)
 	Count(nodeID string, statuses []string, jobTypes []string, frameworks []string) (int64, error)
 	FindFiltered(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string) ([]model.Job, error)
+	UpdateFields(jobID string, fields map[string]interface{}) error
 }
 
 // ParameterRepositoryInterface defines the interface for parameter repository operations
@@ -58,6 +59,7 @@ type MetricsRepositoryInterface interface {
 // JobAnalysisRepositoryInterface defines the interface for job analysis repository operations
 type JobAnalysisRepositoryInterface interface {
 	FindByJobID(jobID string) (*model.JobAnalysis, error)
+	FindByJobIDs(jobIDs []string) ([]model.JobAnalysis, error)
 	Upsert(analysis *model.JobAnalysis) error
 }
 

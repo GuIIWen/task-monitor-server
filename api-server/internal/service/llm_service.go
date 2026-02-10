@@ -142,6 +142,56 @@ func (s *LLMService) AnalyzeJob(jobID string) (*JobAnalysisResponse, error) {
 		}
 	}
 
+	// 5. 回写 job_type / framework（仅在原字段为空时）
+	s.backfillJobFields(jobID, result)
+
+	return result, nil
+}
+
+// backfillJobFields 将分析结果中的 job_type/framework 回写到 job 记录（仅空字段）
+func (s *LLMService) backfillJobFields(jobID string, result *JobAnalysisResponse) {
+	job, err := s.jobService.GetJobByID(jobID)
+	if err != nil || job == nil {
+		return
+	}
+
+	updates := make(map[string]interface{})
+
+	// 回写 job_type
+	if (job.JobType == nil || *job.JobType == "") && result.TaskType.Category != "" && result.TaskType.Category != "unknown" {
+		updates["job_type"] = result.TaskType.Category
+	}
+
+	// 回写 framework
+	if job.Framework == nil || *job.Framework == "" {
+		if result.TaskType.InferenceFramework != nil && *result.TaskType.InferenceFramework != "" {
+			updates["framework"] = *result.TaskType.InferenceFramework
+		}
+	}
+
+	if len(updates) > 0 {
+		if err := s.jobService.UpdateJobFields(jobID, updates); err != nil {
+			log.Printf("failed to backfill job fields for %s: %v", jobID, err)
+		}
+	}
+}
+
+// GetBatchAnalyses 批量获取分析摘要
+func (s *LLMService) GetBatchAnalyses(jobIDs []string) (map[string]*JobAnalysisResponse, error) {
+	if s.analysisRepo == nil || len(jobIDs) == 0 {
+		return make(map[string]*JobAnalysisResponse), nil
+	}
+	analyses, err := s.analysisRepo.FindByJobIDs(jobIDs)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]*JobAnalysisResponse, len(analyses))
+	for _, a := range analyses {
+		var resp JobAnalysisResponse
+		if err := json.Unmarshal([]byte(a.Result), &resp); err == nil {
+			result[a.JobID] = &resp
+		}
+	}
 	return result, nil
 }
 

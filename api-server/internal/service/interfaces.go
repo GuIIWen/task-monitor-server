@@ -101,6 +101,7 @@ type JobAnalysisResponse struct {
 type LLMServiceInterface interface {
 	AnalyzeJob(jobID string) (*JobAnalysisResponse, error)
 	GetAnalysis(jobID string) (*JobAnalysisResponse, error)
+	GetBatchAnalyses(jobIDs []string) (map[string]*JobAnalysisResponse, error)
 	GetConfig() config.LLMConfig
 	UpdateConfig(cfg config.LLMConfig)
 }
@@ -118,6 +119,7 @@ type JobServiceInterface interface {
 	GetJobParameters(jobID string) ([]model.Parameter, error)
 	GetJobCode(jobID string) ([]model.Code, error)
 	GetJobStats() (map[string]int64, error)
+	UpdateJobFields(jobID string, fields map[string]interface{}) error
 }
 
 // AuthServiceInterface 认证服务接口

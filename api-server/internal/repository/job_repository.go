@@ -103,6 +103,10 @@ func (r *JobRepository) Find(nodeID string, statuses []string, jobTypes []string
 	return jobs, err
 }
 
+// UpdateFields 更新作业的指定字段
+func (r *JobRepository) UpdateFields(jobID string, fields map[string]interface{}) error {
+	return r.db.Model(&model.Job{}).Where("job_id = ?", jobID).Updates(fields).Error
+}
 // Count 统计符合条件的作业数量
 func (r *JobRepository) Count(nodeID string, statuses []string, jobTypes []string, frameworks []string) (int64, error) {
 	var total int64
