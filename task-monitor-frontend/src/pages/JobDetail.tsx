@@ -348,76 +348,76 @@ const JobDetail: React.FC = () => {
         </Descriptions>
       </Card>
 
-      {npuCards.length === 0 ? (
-        <Card title="NPU 卡信息">
+      {npuCards.length === 0 && relatedJobs.length === 0 ? (
+        <Card title="NPU 信息">
           <Typography.Text type="secondary">该进程未占用 NPU</Typography.Text>
         </Card>
       ) : (
         <Collapse
           items={[{
             key: 'npu',
-            label: `NPU 卡信息 (${npuCards.length} 张${npuChipRows.length > npuCards.length ? `，${npuChipRows.length} 个 Chip` : ''})`,
+            label: `NPU 信息 (${npuCards.length} 张卡${npuChipRows.length > npuCards.length ? `，${npuChipRows.length} 个 Chip` : ''}${relatedJobs.length > 0 ? `，${relatedJobs.length} 个关联进程` : ''})`,
             children: (
-              <Table<NPUChipRow>
-                dataSource={npuChipRows}
-                rowKey="key"
-                pagination={false}
-                size="small"
-                columns={npuChipColumns}
-              />
-            ),
-          }]}
-        />
-      )}
-
-      {relatedJobs.length > 0 && (
-        <Collapse
-          items={[{
-            key: 'related',
-            label: `关联 NPU 进程 (${relatedJobs.length})`,
-            children: (
-              <Table<Job>
-                dataSource={relatedJobs}
-                rowKey="jobId"
-                pagination={false}
-                size="small"
-                bordered
-                columns={relatedJobColumns}
-                expandable={{
-                  expandedRowKeys,
-                  showExpandColumn: false,
-                  expandedRowRender: (record) => {
-                    const childDetail = childDetailMap[record.jobId];
-                    const loading = childLoadingMap[record.jobId];
-                    if (loading) {
-                      return <Spin size="small" style={{ padding: 16 }} />;
-                    }
-                    if (!childDetail) {
-                      return <Typography.Text type="secondary">加载失败</Typography.Text>;
-                    }
-                    const childCards = childDetail.npuCards || [];
-                    const childChipRows = flattenNPUCards(childCards);
-                    return (
-                      <div style={{ padding: '8px 0' }}>
-                        <Descriptions bordered size="small" column={2}>
-                          <Descriptions.Item label="PID">{childDetail.job.pid ?? '-'}</Descriptions.Item>
-                          <Descriptions.Item label="进程名称">{childDetail.job.processName ?? '-'}</Descriptions.Item>
-                        </Descriptions>
-                        {childChipRows.length > 0 && (
-                          <Table<NPUChipRow>
-                            dataSource={childChipRows}
-                            rowKey="key"
-                            pagination={false}
-                            size="small"
-                            columns={childNpuColumns}
-                            style={{ marginTop: 8 }}
-                          />
-                        )}
-                      </div>
-                    );
-                  },
-                }}
-              />
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                {npuChipRows.length > 0 && (
+                  <Table<NPUChipRow>
+                    dataSource={npuChipRows}
+                    rowKey="key"
+                    pagination={false}
+                    size="small"
+                    columns={npuChipColumns}
+                  />
+                )}
+                {relatedJobs.length > 0 && (
+                  <>
+                    <Typography.Text strong style={{ fontSize: 13 }}>
+                      关联 NPU 进程 ({relatedJobs.length})
+                    </Typography.Text>
+                    <Table<Job>
+                      dataSource={relatedJobs}
+                      rowKey="jobId"
+                      pagination={false}
+                      size="small"
+                      bordered
+                      columns={relatedJobColumns}
+                      expandable={{
+                        expandedRowKeys,
+                        showExpandColumn: false,
+                        expandedRowRender: (record) => {
+                          const childDetail = childDetailMap[record.jobId];
+                          const loading = childLoadingMap[record.jobId];
+                          if (loading) {
+                            return <Spin size="small" style={{ padding: 16 }} />;
+                          }
+                          if (!childDetail) {
+                            return <Typography.Text type="secondary">加载失败</Typography.Text>;
+                          }
+                          const childCards = childDetail.npuCards || [];
+                          const childChipRows = flattenNPUCards(childCards);
+                          return (
+                            <div style={{ padding: '8px 0' }}>
+                              <Descriptions bordered size="small" column={2}>
+                                <Descriptions.Item label="PID">{childDetail.job.pid ?? '-'}</Descriptions.Item>
+                                <Descriptions.Item label="进程名称">{childDetail.job.processName ?? '-'}</Descriptions.Item>
+                              </Descriptions>
+                              {childChipRows.length > 0 && (
+                                <Table<NPUChipRow>
+                                  dataSource={childChipRows}
+                                  rowKey="key"
+                                  pagination={false}
+                                  size="small"
+                                  columns={childNpuColumns}
+                                  style={{ marginTop: 8 }}
+                                />
+                              )}
+                            </div>
+                          );
+                        },
+                      }}
+                    />
+                  </>
+                )}
+              </Space>
             ),
           }]}
         />
