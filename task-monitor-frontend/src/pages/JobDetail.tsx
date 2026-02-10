@@ -19,12 +19,11 @@ interface NPUChipRow {
   metric: NPUMetricInfo;
 }
 
-// 按 npuId 交替的行背景色，用于区分不同卡
-const npuRowColors = ['#f0f5ff', '#fff7e6', '#f6ffed', '#fff1f0', '#f9f0ff', '#e6fffb'];
+// 按 npuId 灰白交替行背景色，与 Descriptions 组件风格一致
 function getNPURowBg(npuId: number, allRows: NPUChipRow[]): string {
   const ids = [...new Set(allRows.map(r => r.npuId))];
   const idx = ids.indexOf(npuId);
-  return npuRowColors[idx % npuRowColors.length];
+  return idx % 2 === 0 ? '#ffffff' : '#fafafa';
 }
 
 function flattenNPUCards(cards: NPUCardInfo[]): NPUChipRow[] {
