@@ -92,6 +92,11 @@ func (m *MockJobRepository) MarkStaleJobsAsCompleted(nodeID string, activeJobIDs
 	return args.Error(0)
 }
 
+func (m *MockJobRepository) UpdateFields(jobID string, fields map[string]interface{}) error {
+	args := m.Called(jobID, fields)
+	return args.Error(0)
+}
+
 // MockParameterRepository is a mock implementation of ParameterRepository
 type MockParameterRepository struct {
 	mock.Mock
@@ -162,6 +167,11 @@ func (m *MockMetricsRepository) FindNPUProcessesByPID(nodeID string, pid int64) 
 
 func (m *MockMetricsRepository) FindNPUProcessesByPIDs(nodeID string, pids []int64) ([]model.NPUProcess, error) {
 	args := m.Called(nodeID, pids)
+	return args.Get(0).([]model.NPUProcess), args.Error(1)
+}
+
+func (m *MockMetricsRepository) FindNPUProcessesByPIDsWithStatuses(nodeID string, pids []int64, statuses []string) ([]model.NPUProcess, error) {
+	args := m.Called(nodeID, pids, statuses)
 	return args.Get(0).([]model.NPUProcess), args.Error(1)
 }
 

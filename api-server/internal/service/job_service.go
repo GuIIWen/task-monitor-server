@@ -143,13 +143,17 @@ func (s *JobService) GetJobDetail(jobID string, aggregate bool) (*JobDetailRespo
 		}
 	}
 
-	// 2. 按 npu_id 去重（取最大显存占用），避免历史/重复记录导致返回重复卡
+	// 2. 按 npu_id 去重（取最大显存占用），同时收集 chip_id 用于精确匹配
 	cardMemory := make(map[int]float64)
+	procChipIDs := make(map[int]*int) // npu_id → chip_id（来自 npu_processes）
 	for _, np := range npuProcs {
 		if np.NPUID == nil {
 			continue
 		}
 		npuID := *np.NPUID
+		if np.ChipID != nil {
+			procChipIDs[npuID] = np.ChipID
+		}
 		if np.MemoryUsageMB == nil {
 			if _, ok := cardMemory[npuID]; !ok {
 				cardMemory[npuID] = 0
@@ -185,7 +189,7 @@ func (s *JobService) GetJobDetail(jobID string, aggregate bool) (*JobDetailRespo
 			}
 			// 子进程视图：过滤空闲 chip，只保留实际使用的
 			if !aggregate && isTerminalJobStatus(job.Status) {
-				metricsByNPU = filterActiveChips(metricsByNPU)
+				metricsByNPU = filterChipsByID(metricsByNPU, procChipIDs)
 			}
 		}
 
@@ -640,6 +644,50 @@ func parseSnapshotMetrics(npuProcs []model.NPUProcess, nodeID string) []model.NP
 		}
 	}
 	return result
+}
+
+// filterChipsByID 根据 npu_processes 中记录的 chip_id 精确匹配 chip。
+// 对于有 chip_id 的卡，按 bus_id 排序后取对应索引的 chip；
+// 对于没有 chip_id 的卡（历史数据），回退到启发式过滤。
+func filterChipsByID(metricsByNPU map[int][]model.NPUMetric, procChipIDs map[int]*int) map[int][]model.NPUMetric {
+	hasChipID := false
+	for _, chips := range metricsByNPU {
+		if len(chips) <= 1 {
+			continue
+		}
+		npuID := 0
+		if chips[0].NPUID != nil {
+			npuID = *chips[0].NPUID
+		}
+		cid, ok := procChipIDs[npuID]
+		if !ok || cid == nil {
+			continue
+		}
+		hasChipID = true
+
+		// 按 bus_id 排序，chip_id 对应排序后的索引
+		sort.Slice(chips, func(i, j int) bool {
+			bi, bj := "", ""
+			if chips[i].BusID != nil {
+				bi = *chips[i].BusID
+			}
+			if chips[j].BusID != nil {
+				bj = *chips[j].BusID
+			}
+			return bi < bj
+		})
+
+		idx := *cid
+		if idx >= 0 && idx < len(chips) {
+			metricsByNPU[npuID] = []model.NPUMetric{chips[idx]}
+		}
+	}
+
+	// 没有任何卡有 chip_id 信息，回退到启发式过滤
+	if !hasChipID {
+		return filterActiveChips(metricsByNPU)
+	}
+	return metricsByNPU
 }
 
 // filterActiveChips 过滤空闲 chip：对每张卡（npu_id），如果最大 HBM 的 chip
