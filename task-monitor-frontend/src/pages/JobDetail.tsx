@@ -19,6 +19,14 @@ interface NPUChipRow {
   metric: NPUMetricInfo;
 }
 
+// 按 npuId 交替的行背景色，用于区分不同卡
+const npuRowColors = ['#f0f5ff', '#fff7e6', '#f6ffed', '#fff1f0', '#f9f0ff', '#e6fffb'];
+function getNPURowBg(npuId: number, allRows: NPUChipRow[]): string {
+  const ids = [...new Set(allRows.map(r => r.npuId))];
+  const idx = ids.indexOf(npuId);
+  return npuRowColors[idx % npuRowColors.length];
+}
+
 function flattenNPUCards(cards: NPUCardInfo[]): NPUChipRow[] {
   const rows: NPUChipRow[] = [];
   for (const card of cards) {
@@ -365,6 +373,9 @@ const JobDetail: React.FC = () => {
                     pagination={false}
                     size="small"
                     columns={npuChipColumns}
+                    onRow={(record) => ({
+                      style: { backgroundColor: getNPURowBg(record.npuId, npuChipRows) },
+                    })}
                   />
                 )}
                 {relatedJobs.length > 0 && (
@@ -407,6 +418,9 @@ const JobDetail: React.FC = () => {
                                   size="small"
                                   columns={childNpuColumns}
                                   style={{ marginTop: 8 }}
+                                  onRow={(record) => ({
+                                    style: { backgroundColor: getNPURowBg(record.npuId, childChipRows) },
+                                  })}
                                 />
                               )}
                             </div>
