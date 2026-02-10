@@ -36,11 +36,12 @@ func (h *ConfigHandler) GetLLMConfig(c *gin.Context) {
 
 // UpdateLLMConfigRequest 更新LLM配置请求
 type UpdateLLMConfigRequest struct {
-	Enabled  *bool   `json:"enabled"`
-	Endpoint *string `json:"endpoint"`
-	APIKey   *string `json:"api_key"`
-	Model    *string `json:"model"`
-	Timeout  *int    `json:"timeout"`
+	Enabled          *bool   `json:"enabled"`
+	Endpoint         *string `json:"endpoint"`
+	APIKey           *string `json:"api_key"`
+	Model            *string `json:"model"`
+	Timeout          *int    `json:"timeout"`
+	BatchConcurrency *int    `json:"batch_concurrency"`
 }
 
 // UpdateLLMConfig 更新LLM配置
@@ -70,6 +71,9 @@ func (h *ConfigHandler) UpdateLLMConfig(c *gin.Context) {
 	}
 	if req.Timeout != nil {
 		llmCfg.Timeout = *req.Timeout
+	}
+	if req.BatchConcurrency != nil {
+		llmCfg.BatchConcurrency = *req.BatchConcurrency
 	}
 
 	// 更新内存中的配置
