@@ -57,6 +57,8 @@ type MetricsRepositoryInterface interface {
 	FindLatestNPUMetrics(nodeID string, npuIDs []int) ([]model.NPUMetric, error)
 	// FindNPUMetricsNearTime 查询指定卡号在某个时间点之前最近的 NPU 指标
 	FindNPUMetricsNearTime(nodeID string, npuIDs []int, beforeMs int64) ([]model.NPUMetric, error)
+	// FindNPUMetricsPeakInPeriod 查询指定卡号在时间段内 HBM 峰值对应的指标记录
+	FindNPUMetricsPeakInPeriod(nodeID string, npuIDs []int, startMs, endMs int64) ([]model.NPUMetric, error)
 }
 
 // JobAnalysisRepositoryInterface defines the interface for job analysis repository operations

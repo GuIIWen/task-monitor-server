@@ -168,12 +168,12 @@ func (s *JobService) GetJobDetail(jobID string, aggregate bool) (*JobDetailRespo
 		}
 		sort.Ints(npuIDs)
 
-		// 3. 查询卡详情并按 npu_id 建立映射（保留所有 chip）
+		// 3. 查询卡详情并按 npu_id 建立映射
 		metricsByNPU := make(map[int][]model.NPUMetric)
 		var metrics []model.NPUMetric
-		// 已停止的作业：查询结束时间附近的指标快照，避免拿到释放后的数据
-		if isTerminalJobStatus(job.Status) && job.EndTime != nil && *job.EndTime > 0 {
-			metrics, err = s.metricsRepo.FindNPUMetricsNearTime(nodeID, npuIDs, *job.EndTime)
+		// 已停止的作业：查询运行期间 HBM 峰值快照，反映真实使用量
+		if isTerminalJobStatus(job.Status) && job.StartTime != nil && job.EndTime != nil && *job.EndTime > 0 {
+			metrics, err = s.metricsRepo.FindNPUMetricsPeakInPeriod(nodeID, npuIDs, *job.StartTime, *job.EndTime)
 		} else {
 			metrics, err = s.metricsRepo.FindLatestNPUMetrics(nodeID, npuIDs)
 		}
@@ -182,6 +182,10 @@ func (s *JobService) GetJobDetail(jobID string, aggregate bool) (*JobDetailRespo
 				if m.NPUID != nil {
 					metricsByNPU[*m.NPUID] = append(metricsByNPU[*m.NPUID], m)
 				}
+			}
+			// 已停止作业：过滤掉空闲 chip（每张卡只保留 HBM 峰值显著的 chip）
+			if isTerminalJobStatus(job.Status) {
+				metricsByNPU = filterActiveChips(metricsByNPU)
 			}
 		}
 
@@ -615,6 +619,55 @@ func parseSnapshotMetrics(npuProcs []model.NPUProcess, nodeID string) []model.NP
 		}
 	}
 	return result
+}
+
+// filterActiveChips 过滤掉空闲 chip：对每张卡（npu_id），如果最大 HBM 的 chip
+// 比最小 HBM 的 chip 高出 2 倍以上，则只保留 HBM 超过最大值 30% 的 chip。
+func filterActiveChips(metricsByNPU map[int][]model.NPUMetric) map[int][]model.NPUMetric {
+	for npuID, chips := range metricsByNPU {
+		if len(chips) <= 1 {
+			continue
+		}
+		var maxHBM, minHBM float64
+		first := true
+		for _, c := range chips {
+			hbm := float64(0)
+			if c.HBMUsageMB != nil {
+				hbm = *c.HBMUsageMB
+			}
+			if first {
+				maxHBM = hbm
+				minHBM = hbm
+				first = false
+			} else {
+				if hbm > maxHBM {
+					maxHBM = hbm
+				}
+				if hbm < minHBM {
+					minHBM = hbm
+				}
+			}
+		}
+		// 最大值不到最小值 2 倍，说明所有 chip 都在使用，保留全部
+		if minHBM <= 0 || maxHBM < minHBM*2 {
+			continue
+		}
+		threshold := maxHBM * 0.3
+		filtered := make([]model.NPUMetric, 0, len(chips))
+		for _, c := range chips {
+			hbm := float64(0)
+			if c.HBMUsageMB != nil {
+				hbm = *c.HBMUsageMB
+			}
+			if hbm >= threshold {
+				filtered = append(filtered, c)
+			}
+		}
+		if len(filtered) > 0 {
+			metricsByNPU[npuID] = filtered
+		}
+	}
+	return metricsByNPU
 }
 
 func hasNPUForAnyPID(npuMap map[int64][]int, pids []int64) bool {

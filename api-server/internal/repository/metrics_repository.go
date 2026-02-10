@@ -142,6 +142,26 @@ func (r *MetricsRepository) FindNPUMetricsNearTime(nodeID string, npuIDs []int, 
 	return metrics, err
 }
 
+// FindNPUMetricsPeakInPeriod 查询指定卡号在时间段内 HBM 峰值对应的指标记录
+func (r *MetricsRepository) FindNPUMetricsPeakInPeriod(nodeID string, npuIDs []int, startMs, endMs int64) ([]model.NPUMetric, error) {
+	if len(npuIDs) == 0 {
+		return []model.NPUMetric{}, nil
+	}
+
+	startTime := time.Unix(startMs/1000, (startMs%1000)*1e6)
+	endTime := time.Unix(endMs/1000, (endMs%1000)*1e6)
+	var metrics []model.NPUMetric
+	err := r.db.Raw(`
+		SELECT * FROM (
+			SELECT m.*,
+				ROW_NUMBER() OVER (PARTITION BY m.npu_id, m.bus_id ORDER BY m.hbm_usage_mb DESC, m.timestamp DESC) AS rn
+			FROM npu_metrics m
+			WHERE m.node_id = ? AND m.npu_id IN ? AND m.timestamp >= ? AND m.timestamp <= ?
+		) ranked WHERE rn = 1
+	`, nodeID, npuIDs, startTime, endTime).Scan(&metrics).Error
+	return metrics, err
+}
+
 // FindLatestNPUMetrics 查询指定卡号的最新 NPU 指标
 func (r *MetricsRepository) FindLatestNPUMetrics(nodeID string, npuIDs []int) ([]model.NPUMetric, error) {
 	if len(npuIDs) == 0 {
