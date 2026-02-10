@@ -126,7 +126,13 @@ func (s *JobService) GetJobDetail(jobID string) (*JobDetailResponse, error) {
 
 		// 3. 查询卡详情并按 npu_id 建立映射（保留所有 chip）
 		metricsByNPU := make(map[int][]model.NPUMetric)
-		metrics, err := s.metricsRepo.FindLatestNPUMetrics(nodeID, npuIDs)
+		var metrics []model.NPUMetric
+		// 已停止的作业：查询结束时间附近的指标快照，避免拿到释放后的数据
+		if isTerminalJobStatus(job.Status) && job.EndTime != nil && *job.EndTime > 0 {
+			metrics, err = s.metricsRepo.FindNPUMetricsNearTime(nodeID, npuIDs, *job.EndTime)
+		} else {
+			metrics, err = s.metricsRepo.FindLatestNPUMetrics(nodeID, npuIDs)
+		}
 		if err == nil {
 			for _, m := range metrics {
 				if m.NPUID != nil {

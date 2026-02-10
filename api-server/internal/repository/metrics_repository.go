@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"time"
+
 	"github.com/task-monitor/api-server/internal/model"
 	"gorm.io/gorm"
 )
@@ -117,6 +119,27 @@ func (r *MetricsRepository) FindNPUProcessesByPIDsWithStatuses(nodeID string, pi
 	var processes []model.NPUProcess
 	err := query.Find(&processes).Error
 	return processes, err
+}
+
+// FindNPUMetricsNearTime 查询指定卡号在某个时间点之前最近的 NPU 指标
+func (r *MetricsRepository) FindNPUMetricsNearTime(nodeID string, npuIDs []int, beforeMs int64) ([]model.NPUMetric, error) {
+	if len(npuIDs) == 0 {
+		return []model.NPUMetric{}, nil
+	}
+
+	beforeTime := time.Unix(beforeMs/1000, (beforeMs%1000)*1e6)
+	var metrics []model.NPUMetric
+	err := r.db.Raw(`
+		SELECT m.* FROM npu_metrics m
+		INNER JOIN (
+			SELECT npu_id, bus_id, MAX(timestamp) AS max_ts
+			FROM npu_metrics
+			WHERE node_id = ? AND npu_id IN ? AND timestamp <= ?
+			GROUP BY npu_id, bus_id
+		) latest ON m.npu_id = latest.npu_id AND m.bus_id = latest.bus_id AND m.timestamp = latest.max_ts
+		WHERE m.node_id = ?
+	`, nodeID, npuIDs, beforeTime, nodeID).Scan(&metrics).Error
+	return metrics, err
 }
 
 // FindLatestNPUMetrics 查询指定卡号的最新 NPU 指标

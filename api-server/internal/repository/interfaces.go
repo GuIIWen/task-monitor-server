@@ -54,6 +54,8 @@ type MetricsRepositoryInterface interface {
 	FindNPUProcessesByPIDsWithStatuses(nodeID string, pids []int64, statuses []string) ([]model.NPUProcess, error)
 	// FindLatestNPUMetrics 查询指定卡号的最新 NPU 指标
 	FindLatestNPUMetrics(nodeID string, npuIDs []int) ([]model.NPUMetric, error)
+	// FindNPUMetricsNearTime 查询指定卡号在某个时间点之前最近的 NPU 指标
+	FindNPUMetricsNearTime(nodeID string, npuIDs []int, beforeMs int64) ([]model.NPUMetric, error)
 }
 
 // JobAnalysisRepositoryInterface defines the interface for job analysis repository operations

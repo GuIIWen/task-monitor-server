@@ -165,6 +165,11 @@ func (m *MockMetricsRepository) FindLatestNPUMetrics(nodeID string, npuIDs []int
 	return args.Get(0).([]model.NPUMetric), args.Error(1)
 }
 
+func (m *MockMetricsRepository) FindNPUMetricsNearTime(nodeID string, npuIDs []int, beforeMs int64) ([]model.NPUMetric, error) {
+	args := m.Called(nodeID, npuIDs, beforeMs)
+	return args.Get(0).([]model.NPUMetric), args.Error(1)
+}
+
 func (m *MockMetricsRepository) CreateNPUMetric(metric *model.NPUMetric) error {
 	args := m.Called(metric)
 	return args.Error(0)
