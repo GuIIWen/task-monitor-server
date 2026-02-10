@@ -135,6 +135,9 @@ const Settings: React.FC = () => {
                   <Form.Item name="timeout" label="超时时间（秒）" rules={[{ required: true, message: '请输入超时时间' }]}>
                     <InputNumber min={1} style={{ width: '100%' }} />
                   </Form.Item>
+                  <Form.Item name="batch_concurrency" label="批量分析并发数" rules={[{ required: true, message: '请输入并发数' }]}>
+                    <InputNumber min={1} max={20} style={{ width: '100%' }} placeholder="默认 5" />
+                  </Form.Item>
                   <Form.Item>
                     <Button type="primary" htmlType="submit" loading={saving}>保存配置</Button>
                   </Form.Item>
