@@ -80,6 +80,25 @@ func (s *JobService) GetJobDetail(jobID string) (*JobDetailResponse, error) {
 		}
 	}
 
+	// 1.2 终态作业兜底：running 状态查不到 NPU 记录时，按 running+stopped 重查
+	if len(npuProcs) == 0 && isTerminalJobStatus(job.Status) {
+		allPIDs := []int64{pid}
+		if job.PGID != nil {
+			relatedJobs, err := s.jobRepo.FindByNodeIDAndPGID(nodeID, *job.PGID)
+			if err == nil {
+				for _, rj := range relatedJobs {
+					if rj.PID != nil && *rj.PID != pid {
+						allPIDs = append(allPIDs, *rj.PID)
+					}
+				}
+			}
+		}
+		fallbackProcs, err := s.metricsRepo.FindNPUProcessesByPIDsWithStatuses(nodeID, allPIDs, []string{"running", "stopped"})
+		if err == nil {
+			npuProcs = fallbackProcs
+		}
+	}
+
 	// 2. 按 npu_id 去重（取最大显存占用），避免历史/重复记录导致返回重复卡
 	cardMemory := make(map[int]float64)
 	for _, np := range npuProcs {
@@ -237,6 +256,19 @@ func (s *JobService) findRelatedNPUJobs(job *model.Job) []model.Job {
 		union(i, parentIdx)
 	}
 
+	// 兜底：同 pgid 的进程合并（ppid 链断裂时靠 pgid 兜底，与 buildGroupedJobs 一致）
+	firstIdx := -1
+	for i := range samePGIDJobs {
+		if samePGIDJobs[i].PID == nil {
+			continue
+		}
+		if firstIdx == -1 {
+			firstIdx = i
+		} else {
+			union(i, firstIdx)
+		}
+	}
+
 	selfIdx := -1
 	for i := range samePGIDJobs {
 		if samePGIDJobs[i].JobID == job.JobID {
@@ -265,7 +297,17 @@ func (s *JobService) findRelatedNPUJobs(job *model.Job) []model.Job {
 
 	// 查 NPU 占用，只返回有 NPU 记录的进程
 	npuMap, err := s.metricsRepo.FindNPUCardsByPIDs(nodeID, dedupeInt64(groupPIDs))
-	if err != nil || len(npuMap) == 0 {
+	if err != nil {
+		return nil
+	}
+	// 终态作业兜底：running 查不到时按 running+stopped 重查
+	if len(npuMap) == 0 && isTerminalJobStatus(job.Status) {
+		npuMap, err = s.metricsRepo.FindNPUCardsByPIDsWithStatuses(nodeID, dedupeInt64(groupPIDs), []string{"running", "stopped"})
+		if err != nil || len(npuMap) == 0 {
+			return nil
+		}
+	}
+	if len(npuMap) == 0 {
 		return nil
 	}
 
