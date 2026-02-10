@@ -94,16 +94,45 @@ func (s *JobService) GetJobDetail(jobID string, aggregate bool) (*JobDetailRespo
 		}
 	}
 
+	// 1.1b 仍无 NPU 记录时，按 PPID 查找子进程（训练启动器的 worker 可能有独立 PGID）
+	if aggregate && len(npuProcs) == 0 {
+		childJobs, err := s.jobRepo.FindByNodeIDAndPPID(nodeID, pid)
+		if err == nil && len(childJobs) > 0 {
+			var childPIDs []int64
+			for _, cj := range childJobs {
+				if cj.PID != nil {
+					childPIDs = append(childPIDs, *cj.PID)
+				}
+			}
+			if len(childPIDs) > 0 {
+				childProcs, err := s.metricsRepo.FindNPUProcessesByPIDs(nodeID, childPIDs)
+				if err == nil {
+					npuProcs = childProcs
+				}
+			}
+		}
+	}
+
 	// 1.2 终态作业兜底：running 状态查不到 NPU 记录时，按 running+stopped 重查
 	if len(npuProcs) == 0 && isTerminalJobStatus(job.Status) {
 		allPIDs := []int64{pid}
-		// aggregate 模式下才聚合同组兄弟进程
-		if aggregate && job.PGID != nil {
-			relatedJobs, err := s.jobRepo.FindByNodeIDAndPGID(nodeID, *job.PGID)
+		// aggregate 模式下聚合同组兄弟进程 + PPID 子进程
+		if aggregate {
+			if job.PGID != nil {
+				relatedJobs, err := s.jobRepo.FindByNodeIDAndPGID(nodeID, *job.PGID)
+				if err == nil {
+					for _, rj := range relatedJobs {
+						if rj.PID != nil && *rj.PID != pid {
+							allPIDs = append(allPIDs, *rj.PID)
+						}
+					}
+				}
+			}
+			childJobs, err := s.jobRepo.FindByNodeIDAndPPID(nodeID, pid)
 			if err == nil {
-				for _, rj := range relatedJobs {
-					if rj.PID != nil && *rj.PID != pid {
-						allPIDs = append(allPIDs, *rj.PID)
+				for _, cj := range childJobs {
+					if cj.PID != nil {
+						allPIDs = append(allPIDs, *cj.PID)
 					}
 				}
 			}

@@ -16,6 +16,7 @@ type JobRepositoryInterface interface {
 	FindByID(jobID string) (*model.Job, error)
 	FindByNodeID(nodeID string) ([]model.Job, error)
 	FindByNodeIDAndPGID(nodeID string, pgid int64) ([]model.Job, error)
+	FindByNodeIDAndPPID(nodeID string, ppid int64) ([]model.Job, error)
 	FindByStatus(status string) ([]model.Job, error)
 	FindAll() ([]model.Job, error)
 	Find(nodeID string, statuses []string, jobTypes []string, frameworks []string, sortBy, sortOrder string, limit, offset int) ([]model.Job, error)

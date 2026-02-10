@@ -42,6 +42,11 @@ func (m *MockJobRepository) FindByNodeIDAndPGID(nodeID string, pgid int64) ([]mo
 	return args.Get(0).([]model.Job), args.Error(1)
 }
 
+func (m *MockJobRepository) FindByNodeIDAndPPID(nodeID string, ppid int64) ([]model.Job, error) {
+	args := m.Called(nodeID, ppid)
+	return args.Get(0).([]model.Job), args.Error(1)
+}
+
 func (m *MockJobRepository) FindByStatus(status string) ([]model.Job, error) {
 	args := m.Called(status)
 	return args.Get(0).([]model.Job), args.Error(1)
