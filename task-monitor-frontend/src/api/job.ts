@@ -74,8 +74,13 @@ export const jobApi = {
 
   getBatchAnalyzeProgress: async (batchId: string): Promise<{
     status: string; total: number; current: number; success: number; failed: number;
+    failedItems?: { jobId: string; error: string }[];
   }> => {
     return apiClient.get(`/jobs/batch-analyze/${batchId}`);
+  },
+
+  cancelBatchAnalyze: async (batchId: string): Promise<any> => {
+    return apiClient.post(`/jobs/batch-analyze/${batchId}/cancel`);
   },
 
   /**

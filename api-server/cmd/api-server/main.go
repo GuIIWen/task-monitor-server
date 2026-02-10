@@ -123,6 +123,7 @@ func main() {
 
 		// 作业分析（写操作）
 		authed.POST("/jobs/batch-analyze", jobHandler.BatchAnalyze)
+		authed.POST("/jobs/batch-analyze/:batchId/cancel", jobHandler.CancelBatchAnalyze)
 		authed.POST("/jobs/:jobId/analyze", jobHandler.AnalyzeJob)
 
 		// 配置修改

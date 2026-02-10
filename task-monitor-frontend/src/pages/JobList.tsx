@@ -44,30 +44,32 @@ const JobList: React.FC = () => {
   // 批量分析浮动进度状态
   const BATCH_KEY = 'batch-analyze-id';
   type AnalyzeProgress = {
-    status: 'running' | 'done';
+    status: 'running' | 'done' | 'cancelled';
     current: number;
     total: number;
     success: number;
     failed: number;
+    failedItems?: { jobId: string; error: string }[];
   };
   const [analyzeProgress, setAnalyzeProgress] = useState<AnalyzeProgress | null>(null);
   const [progressMinimized, setProgressMinimized] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const batchIdRef = useRef<string | null>(null);
 
   // 轮询批量分析进度
   const startPolling = useCallback((batchId: string) => {
+    batchIdRef.current = batchId;
     if (pollingRef.current) clearInterval(pollingRef.current);
     pollingRef.current = setInterval(async () => {
       try {
         const progress = await jobApi.getBatchAnalyzeProgress(batchId);
         setAnalyzeProgress(progress);
-        if (progress.status === 'done') {
+        if (progress.status !== 'running') {
           if (pollingRef.current) clearInterval(pollingRef.current);
           pollingRef.current = null;
           sessionStorage.removeItem(BATCH_KEY);
         }
       } catch {
-        // 接口异常时停止轮询
         if (pollingRef.current) clearInterval(pollingRef.current);
         pollingRef.current = null;
       }
@@ -78,10 +80,10 @@ const JobList: React.FC = () => {
   useEffect(() => {
     const savedBatchId = sessionStorage.getItem(BATCH_KEY);
     if (savedBatchId) {
-      // 立即查一次进度
+      batchIdRef.current = savedBatchId;
       jobApi.getBatchAnalyzeProgress(savedBatchId).then((progress) => {
         setAnalyzeProgress(progress);
-        if (progress.status !== 'done') {
+        if (progress.status === 'running') {
           startPolling(savedBatchId);
         } else {
           sessionStorage.removeItem(BATCH_KEY);
@@ -194,6 +196,17 @@ const JobList: React.FC = () => {
   const dismissProgress = useCallback(() => {
     setAnalyzeProgress(null);
     setProgressMinimized(false);
+    batchIdRef.current = null;
+  }, []);
+
+  const handleCancelBatch = useCallback(async () => {
+    const batchId = batchIdRef.current;
+    if (!batchId) return;
+    try {
+      await jobApi.cancelBatchAnalyze(batchId);
+    } catch {
+      // ignore
+    }
   }, []);
 
   const handleBatchAnalyze = () => {
@@ -533,7 +546,9 @@ const JobList: React.FC = () => {
           onClick={() => setProgressMinimized(false)}
           style={{
             position: 'fixed', bottom: 24, right: 24, zIndex: 1050,
-            background: analyzeProgress.status === 'running' ? '#1890ff' : (analyzeProgress.failed > 0 ? '#faad14' : '#52c41a'),
+            background: analyzeProgress.status === 'running' ? '#1890ff'
+              : analyzeProgress.status === 'cancelled' ? '#faad14'
+              : analyzeProgress.failed > 0 ? '#faad14' : '#52c41a',
             color: '#fff', borderRadius: 20, padding: '8px 16px',
             cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
             display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
@@ -541,7 +556,9 @@ const JobList: React.FC = () => {
         >
           {analyzeProgress.status === 'running'
             ? <><LoadingOutlined /> 分析中 {analyzeProgress.current}/{analyzeProgress.total}</>
-            : <><ExpandOutlined /> 分析完成 {analyzeProgress.success}/{analyzeProgress.total}</>
+            : analyzeProgress.status === 'cancelled'
+              ? <><ExpandOutlined /> 已取消 {analyzeProgress.success}/{analyzeProgress.total}</>
+              : <><ExpandOutlined /> 分析完成 {analyzeProgress.success}/{analyzeProgress.total}</>
           }
         </div>
       ) : (
@@ -552,18 +569,25 @@ const JobList: React.FC = () => {
         }}>
           <div style={{
             padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            background: analyzeProgress.status === 'running' ? '#1890ff' : (analyzeProgress.failed > 0 ? '#faad14' : '#52c41a'),
+            background: analyzeProgress.status === 'running' ? '#1890ff'
+              : analyzeProgress.status === 'cancelled' ? '#faad14'
+              : analyzeProgress.failed > 0 ? '#faad14' : '#52c41a',
             color: '#fff',
           }}>
             <span style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8 }}>
               {analyzeProgress.status === 'running'
                 ? <><LoadingOutlined /> 批量分析进行中</>
-                : analyzeProgress.failed > 0
-                  ? <><WarningOutlined /> 批量分析完成（部分失败）</>
-                  : <><CheckCircleOutlined /> 批量分析完成</>
+                : analyzeProgress.status === 'cancelled'
+                  ? <><WarningOutlined /> 批量分析已取消</>
+                  : analyzeProgress.failed > 0
+                    ? <><WarningOutlined /> 批量分析完成（部分失败）</>
+                    : <><CheckCircleOutlined /> 批量分析完成</>
               }
             </span>
             <span style={{ display: 'flex', gap: 8 }}>
+              {analyzeProgress.status === 'running' && (
+                <CloseOutlined onClick={handleCancelBatch} style={{ cursor: 'pointer' }} title="取消" />
+              )}
               <MinusOutlined onClick={() => setProgressMinimized(true)} style={{ cursor: 'pointer' }} />
               {analyzeProgress.status !== 'running' && (
                 <CloseOutlined onClick={dismissProgress} style={{ cursor: 'pointer' }} />
@@ -574,14 +598,27 @@ const JobList: React.FC = () => {
             <Progress
               percent={analyzeProgress.total > 0 ? Math.round((analyzeProgress.current / analyzeProgress.total) * 100) : 0}
               size="small"
-              status={analyzeProgress.status === 'running' ? 'active' : (analyzeProgress.failed > 0 ? 'exception' : 'success')}
+              status={analyzeProgress.status === 'running' ? 'active'
+                : (analyzeProgress.failed > 0 || analyzeProgress.status === 'cancelled') ? 'exception' : 'success'}
             />
             <div style={{ marginTop: 8, color: '#666', fontSize: 13 }}>
               {analyzeProgress.status === 'running'
                 ? <>进度 {analyzeProgress.current}/{analyzeProgress.total}，成功 {analyzeProgress.success}，失败 {analyzeProgress.failed}</>
-                : <>共 {analyzeProgress.total} 个作业：{analyzeProgress.success} 个成功{analyzeProgress.failed > 0 ? `，${analyzeProgress.failed} 个失败` : ''}</>
+                : analyzeProgress.status === 'cancelled'
+                  ? <>已取消，共处理 {analyzeProgress.current}/{analyzeProgress.total}：{analyzeProgress.success} 个成功{analyzeProgress.failed > 0 ? `，${analyzeProgress.failed} 个失败` : ''}</>
+                  : <>共 {analyzeProgress.total} 个作业：{analyzeProgress.success} 个成功{analyzeProgress.failed > 0 ? `，${analyzeProgress.failed} 个失败` : ''}</>
               }
             </div>
+            {analyzeProgress.failedItems && analyzeProgress.failedItems.length > 0 && analyzeProgress.status !== 'running' && (
+              <div style={{ marginTop: 8, maxHeight: 120, overflowY: 'auto', fontSize: 12 }}>
+                <div style={{ color: '#999', marginBottom: 4 }}>失败详情：</div>
+                {analyzeProgress.failedItems.map((item, idx) => (
+                  <div key={idx} style={{ color: '#f5222d', marginBottom: 2, wordBreak: 'break-all' }}>
+                    <span style={{ color: '#666' }}>{item.jobId}：</span>{item.error}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )

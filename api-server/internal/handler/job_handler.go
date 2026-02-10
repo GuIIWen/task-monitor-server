@@ -14,13 +14,22 @@ import (
 	"gorm.io/gorm"
 )
 
+// failedItem 记录单个失败作业的信息
+type failedItem struct {
+	JobID string `json:"jobId"`
+	Error string `json:"error"`
+}
+
 // batchAnalyzeState 批量分析任务状态
 type batchAnalyzeState struct {
-	Status  string `json:"status"` // running / done
-	Total   int    `json:"total"`
-	Current int64  `json:"current"`
-	Success int64  `json:"success"`
-	Failed  int64  `json:"failed"`
+	Status      string `json:"status"` // running / done / cancelled
+	Total       int    `json:"total"`
+	Current     int64  `json:"current"`
+	Success     int64  `json:"success"`
+	Failed      int64  `json:"failed"`
+	FailedItems []failedItem
+	mu          sync.Mutex
+	cancelCh    chan struct{}
 }
 
 var (
@@ -261,20 +270,51 @@ func (h *JobHandler) BatchAnalyze(c *gin.Context) {
 	}
 
 	batchID := fmt.Sprintf("batch-%d-%d", time.Now().UnixMilli(), atomic.AddInt64(&batchIDSeq, 1))
-	state := &batchAnalyzeState{Status: "running", Total: len(req.JobIDs)}
+	state := &batchAnalyzeState{
+		Status:   "running",
+		Total:    len(req.JobIDs),
+		cancelCh: make(chan struct{}),
+	}
 	batchStates.Store(batchID, state)
 
 	go func() {
 		sem := make(chan struct{}, h.batchConcurrency)
 		var wg sync.WaitGroup
 		for _, jobID := range req.JobIDs {
+			// 检查是否已取消
+			select {
+			case <-state.cancelCh:
+				// 已取消，不再提交新任务
+				break
+			default:
+			}
+			// 再次检查（select default 不会 break 外层 for）
+			cancelled := false
+			select {
+			case <-state.cancelCh:
+				cancelled = true
+			default:
+			}
+			if cancelled {
+				break
+			}
+
 			wg.Add(1)
 			sem <- struct{}{}
 			go func(id string) {
 				defer wg.Done()
 				defer func() { <-sem }()
+				// worker 内也检查取消
+				select {
+				case <-state.cancelCh:
+					return
+				default:
+				}
 				if _, err := h.llmService.AnalyzeJob(id); err != nil {
 					atomic.AddInt64(&state.Failed, 1)
+					state.mu.Lock()
+					state.FailedItems = append(state.FailedItems, failedItem{JobID: id, Error: err.Error()})
+					state.mu.Unlock()
 				} else {
 					atomic.AddInt64(&state.Success, 1)
 				}
@@ -282,7 +322,13 @@ func (h *JobHandler) BatchAnalyze(c *gin.Context) {
 			}(jobID)
 		}
 		wg.Wait()
-		state.Status = "done"
+		// 判断最终状态
+		select {
+		case <-state.cancelCh:
+			state.Status = "cancelled"
+		default:
+			state.Status = "done"
+		}
 	}()
 
 	utils.SuccessResponse(c, gin.H{"batchId": batchID})
@@ -312,11 +358,34 @@ func (h *JobHandler) GetBatchAnalyzeProgress(c *gin.Context) {
 		return
 	}
 	state := val.(*batchAnalyzeState)
+	state.mu.Lock()
+	failedItems := make([]failedItem, len(state.FailedItems))
+	copy(failedItems, state.FailedItems)
+	state.mu.Unlock()
+
 	utils.SuccessResponse(c, gin.H{
-		"status":  state.Status,
-		"total":   state.Total,
-		"current": atomic.LoadInt64(&state.Current),
-		"success": atomic.LoadInt64(&state.Success),
-		"failed":  atomic.LoadInt64(&state.Failed),
+		"status":      state.Status,
+		"total":       state.Total,
+		"current":     atomic.LoadInt64(&state.Current),
+		"success":     atomic.LoadInt64(&state.Success),
+		"failed":      atomic.LoadInt64(&state.Failed),
+		"failedItems": failedItems,
 	})
+}
+
+// CancelBatchAnalyze 取消批量分析任务
+func (h *JobHandler) CancelBatchAnalyze(c *gin.Context) {
+	batchID := c.Param("batchId")
+	val, ok := batchStates.Load(batchID)
+	if !ok {
+		utils.ErrorResponse(c, 404, "batch not found")
+		return
+	}
+	state := val.(*batchAnalyzeState)
+	if state.Status != "running" {
+		utils.ErrorResponse(c, 400, "batch is not running")
+		return
+	}
+	close(state.cancelCh)
+	utils.SuccessResponse(c, gin.H{"message": "cancel signal sent"})
 }
