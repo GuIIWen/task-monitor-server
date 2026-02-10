@@ -392,45 +392,75 @@ const JobList: React.FC = () => {
                     <Tag style={{ margin: 0 }}>{analysis.runtimeAnalysis.duration}</Tag>
                   )}
                   {(() => {
-                    const issues = analysis.issues || [];
-                    const count = issues.length;
-                    const color = count === 0 ? 'default' : count <= 2 ? 'orange' : 'red';
-                    const tag = (
-                      <Tag color={color} style={{ margin: 0, cursor: count > 0 ? 'pointer' : 'default' }}>
-                        {count}个问题
+                    const allIssues = analysis.issues || [];
+                    const problems = allIssues.filter((i: any) => i.severity !== 'info');
+                    const tips = allIssues.filter((i: any) => i.severity === 'info');
+                    const pCount = problems.length;
+                    const pColor = pCount === 0 ? 'default' : pCount <= 2 ? 'orange' : 'red';
+                    const elements: React.ReactNode[] = [];
+                    // 问题标签
+                    const problemTag = (
+                      <Tag color={pColor} style={{ margin: 0, cursor: pCount > 0 ? 'pointer' : 'default' }}>
+                        {pCount}个问题
                       </Tag>
                     );
-                    if (count === 0) return tag;
-                    return (
-                      <Tooltip
-                        title={
-                          <div style={{ maxWidth: 360 }}>
-                            {issues.map((issue: any, idx: number) => (
-                              <div key={idx} style={{ marginBottom: idx < count - 1 ? 8 : 0 }}>
-                                <div>
-                                  <Tag
-                                    color={issue.severity === 'critical' ? 'red' : issue.severity === 'warning' ? 'orange' : 'blue'}
-                                    style={{ margin: '0 4px 0 0' }}
-                                  >
-                                    {issue.severity}
-                                  </Tag>
-                                  <span style={{ fontWeight: 500 }}>{issue.category}</span>
-                                </div>
-                                <div style={{ marginTop: 2, color: 'rgba(255,255,255,0.85)' }}>{issue.description}</div>
-                                {issue.suggestion && (
-                                  <div style={{ marginTop: 2, color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>
-                                    建议：{issue.suggestion}
+                    if (pCount === 0) {
+                      elements.push(problemTag);
+                    } else {
+                      elements.push(
+                        <Tooltip
+                          key="problems"
+                          overlayStyle={{ maxWidth: 400 }}
+                          title={
+                            <div style={{ maxWidth: 360 }}>
+                              {problems.map((issue: any, idx: number) => (
+                                <div key={idx} style={{ marginBottom: idx < pCount - 1 ? 8 : 0 }}>
+                                  <div>
+                                    <Tag
+                                      color={issue.severity === 'critical' ? 'red' : 'orange'}
+                                      style={{ margin: '0 4px 0 0' }}
+                                    >{issue.severity}</Tag>
+                                    <span style={{ fontWeight: 500 }}>{issue.category}</span>
                                   </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        }
-                        overlayStyle={{ maxWidth: 400 }}
-                      >
-                        {tag}
-                      </Tooltip>
-                    );
+                                  <div style={{ marginTop: 2, color: 'rgba(255,255,255,0.85)' }}>{issue.description}</div>
+                                  {issue.suggestion && (
+                                    <div style={{ marginTop: 2, color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>建议：{issue.suggestion}</div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          }
+                        >{problemTag}</Tooltip>
+                      );
+                    }
+                    // 提示标签
+                    if (tips.length > 0) {
+                      const tipTag = (
+                        <Tag color="blue" style={{ margin: 0, cursor: 'pointer' }}>
+                          {tips.length}个提示
+                        </Tag>
+                      );
+                      elements.push(
+                        <Tooltip
+                          key="tips"
+                          overlayStyle={{ maxWidth: 400 }}
+                          title={
+                            <div style={{ maxWidth: 360 }}>
+                              {tips.map((issue: any, idx: number) => (
+                                <div key={idx} style={{ marginBottom: idx < tips.length - 1 ? 8 : 0 }}>
+                                  <div><span style={{ fontWeight: 500 }}>{issue.category}</span></div>
+                                  <div style={{ marginTop: 2, color: 'rgba(255,255,255,0.85)' }}>{issue.description}</div>
+                                  {issue.suggestion && (
+                                    <div style={{ marginTop: 2, color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>建议：{issue.suggestion}</div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          }
+                        >{tipTag}</Tooltip>
+                      );
+                    }
+                    return elements;
                   })()}
                 </div>
                 <span style={{ color: '#ddd', flexShrink: 0 }}>|</span>
