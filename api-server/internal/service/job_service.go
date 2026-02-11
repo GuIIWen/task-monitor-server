@@ -202,9 +202,7 @@ func (s *JobService) GetJobDetail(jobID string, aggregate bool) (*JobDetailRespo
 			}
 		}
 
-		if isTerminalJobStatus(job.Status) {
-			metricsByNPU = filterChipsByID(metricsByNPU, procChipIDs, aggregate)
-		}
+		metricsByNPU = filterChipsByID(metricsByNPU, procChipIDs, aggregate)
 
 		// 4. 组装 NPUCardInfo（按 npu_id 有序输出）
 		for _, npuID := range npuIDs {

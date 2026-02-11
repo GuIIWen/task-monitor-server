@@ -82,12 +82,16 @@ export const useDistinctCardCounts = () => {
 };
 
 /**
- * 获取已保存的AI分析结果
+ * 获取已保存的AI分析结果（分析中时自动轮询）
  */
 export const useJobAnalysis = (jobId: string) => {
   return useQuery({
     queryKey: ['jobAnalysis', jobId],
     queryFn: () => jobApi.getJobAnalysis(jobId),
     enabled: !!jobId,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      return data?.status === 'analyzing' ? 2000 : false;
+    },
   });
 };

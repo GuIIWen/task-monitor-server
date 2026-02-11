@@ -66,6 +66,7 @@ type JobAnalysisRepositoryInterface interface {
 	FindByJobID(jobID string) (*model.JobAnalysis, error)
 	FindByJobIDs(jobIDs []string) ([]model.JobAnalysis, error)
 	Upsert(analysis *model.JobAnalysis) error
+	UpdateStatus(jobID, status, result string) error
 }
 
 // UserRepositoryInterface defines the interface for user repository operations

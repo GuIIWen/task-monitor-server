@@ -159,6 +159,11 @@ export interface JobAnalysis {
   issues: JobAnalysisIssue[];
 }
 
+export interface JobAnalysisWithStatus {
+  status: 'analyzing' | 'completed' | 'failed';
+  result: JobAnalysis | null;
+}
+
 export interface GroupedJobListResponse {
   items: JobGroup[];
   pagination: {

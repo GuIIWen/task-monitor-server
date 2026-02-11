@@ -64,8 +64,8 @@ func (s *LLMService) UpdateConfig(cfg config.LLMConfig) {
 	s.httpClient = &http.Client{Timeout: time.Duration(timeout) * time.Second}
 }
 
-// GetAnalysis 获取已保存的分析结果
-func (s *LLMService) GetAnalysis(jobID string) (*JobAnalysisResponse, error) {
+// GetAnalysis 获取已保存的分析结果（含状态）
+func (s *LLMService) GetAnalysis(jobID string) (*AnalysisWithStatus, error) {
 	if s.analysisRepo == nil {
 		return nil, nil
 	}
@@ -73,11 +73,14 @@ func (s *LLMService) GetAnalysis(jobID string) (*JobAnalysisResponse, error) {
 	if err != nil {
 		return nil, nil
 	}
-	var result JobAnalysisResponse
-	if err := json.Unmarshal([]byte(analysis.Result), &result); err != nil {
-		return nil, fmt.Errorf("failed to parse saved analysis: %w", err)
+	resp := &AnalysisWithStatus{Status: analysis.Status}
+	if analysis.Status == "completed" && analysis.Result != "" {
+		var result JobAnalysisResponse
+		if err := json.Unmarshal([]byte(analysis.Result), &result); err == nil {
+			resp.Result = &result
+		}
 	}
-	return &result, nil
+	return resp, nil
 }
 
 // chatMessage OpenAI chat message
@@ -102,8 +105,8 @@ type chatResponse struct {
 	} `json:"choices"`
 }
 
-// AnalyzeJob 分析作业
-func (s *LLMService) AnalyzeJob(jobID string) (*JobAnalysisResponse, error) {
+// AnalyzeJob 异步分析作业：立即写入 analyzing 状态并返回，后台 goroutine 执行 LLM 调用
+func (s *LLMService) AnalyzeJob(jobID string) (*AnalysisWithStatus, error) {
 	s.mu.RLock()
 	enabled := s.config.Enabled
 	s.mu.RUnlock()
@@ -111,41 +114,67 @@ func (s *LLMService) AnalyzeJob(jobID string) (*JobAnalysisResponse, error) {
 		return nil, fmt.Errorf("LLM service is not enabled")
 	}
 
+	// 先检查是否已在分析中，避免重复提交
+	if s.analysisRepo != nil {
+		if existing, err := s.analysisRepo.FindByJobID(jobID); err == nil && existing.Status == "analyzing" {
+			return &AnalysisWithStatus{Status: "analyzing"}, nil
+		}
+	}
+
+	// 写入 analyzing 状态
+	if s.analysisRepo != nil {
+		if err := s.analysisRepo.Upsert(&model.JobAnalysis{
+			JobID:  jobID,
+			Status: "analyzing",
+			Result: "",
+		}); err != nil {
+			return nil, fmt.Errorf("failed to save analyzing status: %w", err)
+		}
+	}
+
+	// 后台执行 LLM 分析
+	go s.doAnalyze(jobID)
+
+	return &AnalysisWithStatus{Status: "analyzing"}, nil
+}
+
+// doAnalyze 后台执行实际的 LLM 分析
+func (s *LLMService) doAnalyze(jobID string) {
 	// 1. 聚合作业数据
 	userPrompt, err := s.buildUserPrompt(jobID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build prompt: %w", err)
+		log.Printf("analyze job %s: build prompt failed: %v", jobID, err)
+		s.analysisRepo.UpdateStatus(jobID, "failed", "")
+		return
 	}
 
 	// 2. 调用LLM
 	content, err := s.callLLM(systemPrompt, userPrompt)
 	if err != nil {
-		return nil, fmt.Errorf("failed to call LLM: %w", err)
+		log.Printf("analyze job %s: call LLM failed: %v", jobID, err)
+		s.analysisRepo.UpdateStatus(jobID, "failed", "")
+		return
 	}
 
 	// 3. 解析返回的JSON
 	result, err := s.parseResponse(content)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse LLM response: %w", err)
+		log.Printf("analyze job %s: parse response failed: %v", jobID, err)
+		s.analysisRepo.UpdateStatus(jobID, "failed", "")
+		return
 	}
 
 	// 4. 持久化分析结果
-	if s.analysisRepo != nil {
-		resultJSON, err := json.Marshal(result)
-		if err == nil {
-			if err := s.analysisRepo.Upsert(&model.JobAnalysis{
-				JobID:  jobID,
-				Result: string(resultJSON),
-			}); err != nil {
-				log.Printf("failed to save analysis result for job %s: %v", jobID, err)
-			}
-		}
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		log.Printf("analyze job %s: marshal result failed: %v", jobID, err)
+		s.analysisRepo.UpdateStatus(jobID, "failed", "")
+		return
 	}
+	s.analysisRepo.UpdateStatus(jobID, "completed", string(resultJSON))
 
 	// 5. 回写 job_type / framework（仅在原字段为空时）
 	s.backfillJobFields(jobID, result)
-
-	return result, nil
 }
 
 // backfillJobFields 将分析结果中的 job_type/framework 回写到 job 记录（仅空字段）

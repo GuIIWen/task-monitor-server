@@ -69,9 +69,9 @@ const JobDetail: React.FC = () => {
   const [childLoadingMap, setChildLoadingMap] = useState<Record<string, boolean>>({});
   const queryClient = useQueryClient();
   const { data: savedAnalysis } = useJobAnalysis(jobId!);
-  const [analysisLoading, setAnalysisLoading] = useState(false);
 
-  const analysisData = savedAnalysis || null;
+  const analysisLoading = savedAnalysis?.status === 'analyzing';
+  const analysisData = savedAnalysis?.status === 'completed' ? savedAnalysis.result : null;
 
   const handleExpand = useCallback(async (expanded: boolean, record: Job) => {
     const key = record.jobId;
@@ -94,14 +94,11 @@ const JobDetail: React.FC = () => {
 
   const handleAnalyze = useCallback(async () => {
     if (!jobId) return;
-    setAnalysisLoading(true);
     try {
       await jobApi.analyzeJob(jobId);
       queryClient.invalidateQueries({ queryKey: ['jobAnalysis', jobId] });
     } catch (e: any) {
       message.error(e?.message || 'AI 分析失败');
-    } finally {
-      setAnalysisLoading(false);
     }
   }, [jobId, queryClient]);
 
@@ -198,11 +195,11 @@ const JobDetail: React.FC = () => {
       },
     },
     {
-      title: 'HBM 占用',
-      key: 'processHbm',
+      title: '进程显存',
+      key: 'processMemory',
       width: 180,
       render: (_, record) => {
-        const used = record.metric?.hbmUsageMb;
+        const used = record.memoryUsageMb;
         const total = record.metric?.hbmTotalMb;
         if (used == null || total == null) return '-';
         const pct = total > 0 ? Number(((used / total) * 100).toFixed(1)) : 0;
@@ -456,7 +453,12 @@ const JobDetail: React.FC = () => {
             </div>
           </div>
         )}
-        {!analysisLoading && !analysisData && (
+        {!analysisLoading && !analysisData && savedAnalysis?.status === 'failed' && (
+          <Typography.Text type="danger">
+            分析失败，请点击"重新分析"重试。
+          </Typography.Text>
+        )}
+        {!analysisLoading && !analysisData && savedAnalysis?.status !== 'failed' && (
           <Typography.Text type="secondary">
             点击"开始分析"按钮，AI 将综合分析作业的基本信息、NPU 资源、脚本代码、参数配置和环境变量。
           </Typography.Text>

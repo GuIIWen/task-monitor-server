@@ -97,10 +97,16 @@ type JobAnalysisResponse struct {
 	Issues             []JobAnalysisIssue             `json:"issues"`
 }
 
+// AnalysisWithStatus 带状态的分析结果
+type AnalysisWithStatus struct {
+	Status string               `json:"status"` // analyzing / completed / failed
+	Result *JobAnalysisResponse `json:"result"`
+}
+
 // LLMServiceInterface LLM服务接口
 type LLMServiceInterface interface {
-	AnalyzeJob(jobID string) (*JobAnalysisResponse, error)
-	GetAnalysis(jobID string) (*JobAnalysisResponse, error)
+	AnalyzeJob(jobID string) (*AnalysisWithStatus, error)
+	GetAnalysis(jobID string) (*AnalysisWithStatus, error)
 	GetBatchAnalyses(jobIDs []string) (map[string]*JobAnalysisResponse, error)
 	GetConfig() config.LLMConfig
 	UpdateConfig(cfg config.LLMConfig)

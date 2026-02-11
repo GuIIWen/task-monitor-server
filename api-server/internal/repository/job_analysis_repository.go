@@ -36,6 +36,14 @@ func (r *JobAnalysisRepository) FindByJobIDs(jobIDs []string) ([]model.JobAnalys
 func (r *JobAnalysisRepository) Upsert(analysis *model.JobAnalysis) error {
 	return r.db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "job_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"result", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"status", "result", "updated_at"}),
 	}).Create(analysis).Error
+}
+
+func (r *JobAnalysisRepository) UpdateStatus(jobID, status, result string) error {
+	updates := map[string]interface{}{"status": status, "updated_at": gorm.Expr("NOW()")}
+	if result != "" {
+		updates["result"] = result
+	}
+	return r.db.Model(&model.JobAnalysis{}).Where("job_id = ?", jobID).Updates(updates).Error
 }

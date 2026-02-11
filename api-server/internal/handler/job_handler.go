@@ -219,7 +219,7 @@ func (h *JobHandler) GetJobStats(c *gin.Context) {
 	utils.SuccessResponse(c, stats)
 }
 
-// AnalyzeJob AI分析作业
+// AnalyzeJob AI分析作业（异步）
 func (h *JobHandler) AnalyzeJob(c *gin.Context) {
 	if h.llmService == nil {
 		utils.ErrorResponse(c, 501, "LLM service is not configured")

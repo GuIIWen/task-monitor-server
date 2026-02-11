@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { JobDetailResponse, JobListParams, JobListResponse, JobStats, GroupedJobListResponse, Parameter, JobAnalysis } from '@/types/job';
+import type { JobDetailResponse, JobListParams, JobListResponse, JobStats, GroupedJobListResponse, Parameter, JobAnalysis, JobAnalysisWithStatus } from '@/types/job';
 
 /**
  * 作业相关API
@@ -57,14 +57,14 @@ export const jobApi = {
   /**
    * AI分析作业
    */
-  analyzeJob: async (jobId: string): Promise<JobAnalysis> => {
-    return apiClient.post(`/jobs/${jobId}/analyze`, null, { timeout: 180000 });
+  analyzeJob: async (jobId: string): Promise<JobAnalysisWithStatus> => {
+    return apiClient.post(`/jobs/${jobId}/analyze`);
   },
 
   /**
    * 获取已保存的AI分析结果
    */
-  getJobAnalysis: async (jobId: string): Promise<JobAnalysis | null> => {
+  getJobAnalysis: async (jobId: string): Promise<JobAnalysisWithStatus | null> => {
     return apiClient.get(`/jobs/${jobId}/analysis`);
   },
 
