@@ -27,6 +27,7 @@ type LLMService struct {
 
 // NewLLMService 创建LLM服务
 func NewLLMService(jobService JobServiceInterface, analysisRepo repository.JobAnalysisRepositoryInterface, cfg config.LLMConfig) *LLMService {
+	cfg = normalizeLLMConfig(cfg)
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = 60
@@ -43,11 +44,10 @@ func NewLLMService(jobService JobServiceInterface, analysisRepo repository.JobAn
 func (s *LLMService) GetConfig() config.LLMConfig {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	cfg := s.config
-	if len(cfg.APIKey) > 4 {
-		cfg.APIKey = "****" + cfg.APIKey[len(cfg.APIKey)-4:]
-	} else if cfg.APIKey != "" {
-		cfg.APIKey = "****"
+	cfg := normalizeLLMConfig(s.config)
+	cfg.APIKey = maskAPIKey(cfg.APIKey)
+	for i := range cfg.Models {
+		cfg.Models[i].APIKey = maskAPIKey(cfg.Models[i].APIKey)
 	}
 	return cfg
 }
@@ -56,6 +56,8 @@ func (s *LLMService) GetConfig() config.LLMConfig {
 func (s *LLMService) UpdateConfig(cfg config.LLMConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	cfg = restoreMaskedKeys(s.config, cfg)
+	cfg = normalizeLLMConfig(cfg)
 	s.config = cfg
 	timeout := cfg.Timeout
 	if timeout <= 0 {
@@ -104,11 +106,25 @@ type chatResponse struct {
 
 // AnalyzeJob 分析作业
 func (s *LLMService) AnalyzeJob(jobID string) (*JobAnalysisResponse, error) {
+	return s.analyzeJobInternal(jobID, "")
+}
+
+// AnalyzeJobWithModel 按模型ID分析作业
+func (s *LLMService) AnalyzeJobWithModel(jobID, modelID string) (*JobAnalysisResponse, error) {
+	return s.analyzeJobInternal(jobID, modelID)
+}
+
+func (s *LLMService) analyzeJobInternal(jobID, modelID string) (*JobAnalysisResponse, error) {
 	s.mu.RLock()
-	enabled := s.config.Enabled
+	cfg := normalizeLLMConfig(s.config)
 	s.mu.RUnlock()
-	if !enabled {
+	if !cfg.Enabled {
 		return nil, fmt.Errorf("LLM service is not enabled")
+	}
+
+	selectedModel, err := resolveModelConfig(cfg, modelID)
+	if err != nil {
+		return nil, err
 	}
 
 	// 1. 聚合作业数据
@@ -118,7 +134,7 @@ func (s *LLMService) AnalyzeJob(jobID string) (*JobAnalysisResponse, error) {
 	}
 
 	// 2. 调用LLM
-	content, err := s.callLLM(systemPrompt, userPrompt)
+	content, err := s.callLLM(systemPrompt, userPrompt, selectedModel)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call LLM: %w", err)
 	}
@@ -334,13 +350,9 @@ func (s *LLMService) buildUserPrompt(jobID string) (string, error) {
 }
 
 // callLLM 调用OpenAI兼容接口
-func (s *LLMService) callLLM(sysPrompt, userPrompt string) (string, error) {
-	s.mu.RLock()
-	cfg := s.config
-	s.mu.RUnlock()
-
+func (s *LLMService) callLLM(sysPrompt, userPrompt string, modelCfg config.LLMModelConfig) (string, error) {
 	reqBody := chatRequest{
-		Model: cfg.Model,
+		Model: modelCfg.Model,
 		Messages: []chatMessage{
 			{Role: "system", Content: sysPrompt},
 			{Role: "user", Content: userPrompt},
@@ -353,17 +365,26 @@ func (s *LLMService) callLLM(sysPrompt, userPrompt string) (string, error) {
 		return "", fmt.Errorf("marshal request: %w", err)
 	}
 
-	endpoint := strings.TrimRight(cfg.Endpoint, "/") + "/chat/completions"
+	endpoint := strings.TrimRight(modelCfg.Endpoint, "/") + "/chat/completions"
 	req, err := http.NewRequest("POST", endpoint, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if cfg.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	if modelCfg.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+modelCfg.APIKey)
 	}
 
-	resp, err := s.httpClient.Do(req)
+	timeout := modelCfg.Timeout
+	if timeout <= 0 {
+		timeout = 60
+	}
+	client := s.httpClient
+	if client == nil || client.Timeout != time.Duration(timeout)*time.Second {
+		client = &http.Client{Timeout: time.Duration(timeout) * time.Second}
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("http request: %w", err)
 	}
@@ -429,6 +450,180 @@ func extractJSON(s string) string {
 		return s[first : last+1]
 	}
 	return s
+}
+
+func normalizeLLMConfig(cfg config.LLMConfig) config.LLMConfig {
+	legacyEndpoint := strings.TrimSpace(cfg.Endpoint)
+	legacyModel := strings.TrimSpace(cfg.Model)
+	legacyAPIKey := strings.TrimSpace(cfg.APIKey)
+
+	normalizedModels := make([]config.LLMModelConfig, 0, len(cfg.Models))
+	for i, m := range cfg.Models {
+		id := strings.TrimSpace(m.ID)
+		if id == "" {
+			id = fmt.Sprintf("model-%d", i+1)
+		}
+		normalizedModels = append(normalizedModels, config.LLMModelConfig{
+			ID:       id,
+			Name:     strings.TrimSpace(m.Name),
+			Endpoint: strings.TrimSpace(m.Endpoint),
+			APIKey:   strings.TrimSpace(m.APIKey),
+			Model:    strings.TrimSpace(m.Model),
+			Timeout:  m.Timeout,
+			Enabled:  m.Enabled,
+		})
+	}
+
+	if len(normalizedModels) == 0 && (legacyEndpoint != "" || legacyModel != "" || legacyAPIKey != "") {
+		legacyTimeout := cfg.Timeout
+		if legacyTimeout <= 0 {
+			legacyTimeout = 60
+		}
+		normalizedModels = []config.LLMModelConfig{{
+			ID:       "default",
+			Name:     "默认模型",
+			Endpoint: legacyEndpoint,
+			APIKey:   legacyAPIKey,
+			Model:    legacyModel,
+			Timeout:  legacyTimeout,
+			Enabled:  true,
+		}}
+	}
+
+	cfg.Models = normalizedModels
+
+	defaultID := strings.TrimSpace(cfg.DefaultModelID)
+	if len(cfg.Models) > 0 {
+		if defaultID == "" || findModelIndexByID(cfg.Models, defaultID) == -1 {
+			if idx := findFirstEnabledModel(cfg.Models); idx >= 0 {
+				defaultID = cfg.Models[idx].ID
+			} else {
+				defaultID = cfg.Models[0].ID
+			}
+		}
+		cfg.DefaultModelID = defaultID
+
+		if idx := findModelIndexByID(cfg.Models, defaultID); idx >= 0 {
+			selected := cfg.Models[idx]
+			cfg.Endpoint = selected.Endpoint
+			cfg.APIKey = selected.APIKey
+			cfg.Model = selected.Model
+			if selected.Timeout > 0 {
+				cfg.Timeout = selected.Timeout
+			}
+		}
+	}
+
+	if cfg.Timeout <= 0 {
+		cfg.Timeout = 60
+	}
+
+	return cfg
+}
+
+func resolveModelConfig(cfg config.LLMConfig, requestedModelID string) (config.LLMModelConfig, error) {
+	cfg = normalizeLLMConfig(cfg)
+
+	if len(cfg.Models) == 0 {
+		if strings.TrimSpace(cfg.Endpoint) == "" || strings.TrimSpace(cfg.Model) == "" {
+			return config.LLMModelConfig{}, fmt.Errorf("no available LLM model configured")
+		}
+		return config.LLMModelConfig{
+			ID:       "default",
+			Name:     "默认模型",
+			Endpoint: strings.TrimSpace(cfg.Endpoint),
+			APIKey:   strings.TrimSpace(cfg.APIKey),
+			Model:    strings.TrimSpace(cfg.Model),
+			Timeout:  cfg.Timeout,
+			Enabled:  true,
+		}, nil
+	}
+
+	modelID := strings.TrimSpace(requestedModelID)
+	if modelID == "" {
+		modelID = cfg.DefaultModelID
+	}
+	if modelID == "" {
+		if idx := findFirstEnabledModel(cfg.Models); idx >= 0 {
+			modelID = cfg.Models[idx].ID
+		} else {
+			modelID = cfg.Models[0].ID
+		}
+	}
+
+	idx := findModelIndexByID(cfg.Models, modelID)
+	if idx == -1 {
+		return config.LLMModelConfig{}, fmt.Errorf("model %q not found", modelID)
+	}
+
+	selected := cfg.Models[idx]
+	if !selected.Enabled {
+		return config.LLMModelConfig{}, fmt.Errorf("model %q is disabled", modelID)
+	}
+	if selected.Endpoint == "" || selected.Model == "" {
+		return config.LLMModelConfig{}, fmt.Errorf("model %q is incomplete", modelID)
+	}
+	if selected.Timeout <= 0 {
+		selected.Timeout = cfg.Timeout
+	}
+	if selected.Timeout <= 0 {
+		selected.Timeout = 60
+	}
+
+	return selected, nil
+}
+
+func findModelIndexByID(models []config.LLMModelConfig, modelID string) int {
+	for i := range models {
+		if models[i].ID == modelID {
+			return i
+		}
+	}
+	return -1
+}
+
+func findFirstEnabledModel(models []config.LLMModelConfig) int {
+	for i := range models {
+		if models[i].Enabled {
+			return i
+		}
+	}
+	return -1
+}
+
+func maskAPIKey(apiKey string) string {
+	if len(apiKey) > 4 {
+		return "****" + apiKey[len(apiKey)-4:]
+	}
+	if apiKey != "" {
+		return "****"
+	}
+	return ""
+}
+
+func restoreMaskedKeys(oldCfg, newCfg config.LLMConfig) config.LLMConfig {
+	if strings.HasPrefix(newCfg.APIKey, "****") {
+		newCfg.APIKey = oldCfg.APIKey
+	}
+
+	if len(newCfg.Models) == 0 || len(oldCfg.Models) == 0 {
+		return newCfg
+	}
+
+	oldByID := make(map[string]string, len(oldCfg.Models))
+	for _, m := range oldCfg.Models {
+		oldByID[m.ID] = m.APIKey
+	}
+
+	for i := range newCfg.Models {
+		if strings.HasPrefix(newCfg.Models[i].APIKey, "****") {
+			if oldKey, ok := oldByID[newCfg.Models[i].ID]; ok {
+				newCfg.Models[i].APIKey = oldKey
+			}
+		}
+	}
+
+	return newCfg
 }
 
 // truncateStr 截断字符串

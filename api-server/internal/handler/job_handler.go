@@ -231,8 +231,32 @@ func (h *JobHandler) AnalyzeJob(c *gin.Context) {
 	}
 
 	jobID := c.Param("jobId")
+	var req struct {
+		ModelID string `json:"modelId"`
+	}
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			utils.ErrorResponse(c, 400, "invalid request body: "+err.Error())
+			return
+		}
+	}
 
-	result, err := h.llmService.AnalyzeJob(jobID)
+	modelID := strings.TrimSpace(req.ModelID)
+	var (
+		result *service.JobAnalysisResponse
+		err    error
+	)
+	if modelID != "" {
+		if modelLLM, ok := h.llmService.(service.LLMServiceWithModelInterface); ok {
+			result, err = modelLLM.AnalyzeJobWithModel(jobID, modelID)
+		} else {
+			utils.ErrorResponse(c, 501, "LLM service does not support custom model selection")
+			return
+		}
+	} else {
+		result, err = h.llmService.AnalyzeJob(jobID)
+	}
+
 	if err != nil {
 		utils.ErrorResponse(c, 500, "AI analysis failed: "+err.Error())
 		return

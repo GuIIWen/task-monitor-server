@@ -377,6 +377,14 @@ func (m *MockLLMService) AnalyzeJob(jobID string) (*service.JobAnalysisResponse,
 	return args.Get(0).(*service.JobAnalysisResponse), args.Error(1)
 }
 
+func (m *MockLLMService) AnalyzeJobWithModel(jobID, modelID string) (*service.JobAnalysisResponse, error) {
+	args := m.Called(jobID, modelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*service.JobAnalysisResponse), args.Error(1)
+}
+
 func (m *MockLLMService) GetAnalysis(jobID string) (*service.JobAnalysisResponse, error) {
 	args := m.Called(jobID)
 	if args.Get(0) == nil {
@@ -474,6 +482,46 @@ func TestJobHandler_AnalyzeJob_Error(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	mockLLMService.AssertExpectations(t)
+}
+
+func TestJobHandler_AnalyzeJob_WithCustomModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockJobService := new(MockJobService)
+	mockLLMService := new(MockLLMService)
+	handler := NewJobHandler(mockJobService, mockLLMService)
+
+	resp := &service.JobAnalysisResponse{Summary: "ok"}
+	mockLLMService.On("AnalyzeJobWithModel", "job-001", "qwen-max").Return(resp, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "jobId", Value: "job-001"}}
+	c.Request = httptest.NewRequest("POST", "/api/v1/jobs/job-001/analyze", strings.NewReader(`{"modelId":"qwen-max"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.AnalyzeJob(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockLLMService.AssertExpectations(t)
+}
+
+func TestJobHandler_AnalyzeJob_InvalidBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockJobService := new(MockJobService)
+	mockLLMService := new(MockLLMService)
+	handler := NewJobHandler(mockJobService, mockLLMService)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{{Key: "jobId", Value: "job-001"}}
+	c.Request = httptest.NewRequest("POST", "/api/v1/jobs/job-001/analyze", strings.NewReader("{"))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.AnalyzeJob(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestJobHandler_ExportAnalysesCSV_Success(t *testing.T) {

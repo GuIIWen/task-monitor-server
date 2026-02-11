@@ -17,6 +17,17 @@ type Config struct {
 	JWT      JWTConfig      `yaml:"jwt"`
 }
 
+// LLMModelConfig 单个LLM模型配置
+type LLMModelConfig struct {
+	ID       string `yaml:"id" json:"id"`
+	Name     string `yaml:"name" json:"name"`
+	Endpoint string `yaml:"endpoint" json:"endpoint"`
+	APIKey   string `yaml:"api_key" json:"api_key"`
+	Model    string `yaml:"model" json:"model"`
+	Timeout  int    `yaml:"timeout" json:"timeout"`
+	Enabled  bool   `yaml:"enabled" json:"enabled"`
+}
+
 // JWTConfig JWT认证配置
 type JWTConfig struct {
 	Secret     string `yaml:"secret"`
@@ -25,12 +36,14 @@ type JWTConfig struct {
 
 // LLMConfig LLM服务配置
 type LLMConfig struct {
-	Enabled          bool   `yaml:"enabled" json:"enabled"`
-	Endpoint         string `yaml:"endpoint" json:"endpoint"`
-	APIKey           string `yaml:"api_key" json:"api_key"`
-	Model            string `yaml:"model" json:"model"`
-	Timeout          int    `yaml:"timeout" json:"timeout"`
-	BatchConcurrency int    `yaml:"batch_concurrency" json:"batch_concurrency"`
+	Enabled          bool             `yaml:"enabled" json:"enabled"`
+	Endpoint         string           `yaml:"endpoint" json:"endpoint"`
+	APIKey           string           `yaml:"api_key" json:"api_key"`
+	Model            string           `yaml:"model" json:"model"`
+	Timeout          int              `yaml:"timeout" json:"timeout"`
+	BatchConcurrency int              `yaml:"batch_concurrency" json:"batch_concurrency"`
+	DefaultModelID   string           `yaml:"default_model_id" json:"default_model_id"`
+	Models           []LLMModelConfig `yaml:"models" json:"models"`
 }
 
 // ServerConfig 服务器配置
