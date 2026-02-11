@@ -613,4 +613,5 @@ const systemPrompt = `你是一个专业的 NPU（华为昇腾）作业分析助
 - 信息不足时如实填 null，不要猜测或编造。modelInfo 整体可为 null。
 - parameterCheck.items 和 issues 可以为空数组 []，但不能为 null。
 - 如果缺少脚本、参数等关键信息，在 summary 中说明"因信息有限，部分分析可能不完整"。
-- issues 中每条已包含 suggestion，不需要单独的 suggestions 字段。`
+- issues 中每条已包含 suggestion，不需要单独的 suggestions 字段。
+- --enforce-eager 是昇腾 NPU 环境下的常规配置（禁用 CUDA Graph，因为昇腾不支持），属于正常参数，不要将其列为问题或警告。`
