@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -80,6 +82,11 @@ func (m *MockJobService) GetJobDetail(jobID string, aggregate bool) (*service.Jo
 func (m *MockJobService) GetJobStats() (map[string]int64, error) {
 	args := m.Called()
 	return args.Get(0).(map[string]int64), args.Error(1)
+}
+
+func (m *MockJobService) UpdateJobFields(jobID string, fields map[string]interface{}) error {
+	args := m.Called(jobID, fields)
+	return args.Error(0)
 }
 
 func TestJobHandler_GetJobs_ByNodeID(t *testing.T) {
@@ -179,7 +186,7 @@ func TestJobHandler_GetJobByID(t *testing.T) {
 		RelatedJobs: []model.Job{},
 	}
 
-	mockService.On("GetJobDetail", "job-001").Return(expectedDetail, nil)
+	mockService.On("GetJobDetail", "job-001", true).Return(expectedDetail, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -206,7 +213,7 @@ func TestJobHandler_GetJobByID_NotFound(t *testing.T) {
 	mockService := new(MockJobService)
 	handler := NewJobHandler(mockService, nil)
 
-	mockService.On("GetJobDetail", "non-existent").Return(nil, gorm.ErrRecordNotFound)
+	mockService.On("GetJobDetail", "non-existent", true).Return(nil, gorm.ErrRecordNotFound)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -370,6 +377,22 @@ func (m *MockLLMService) AnalyzeJob(jobID string) (*service.JobAnalysisResponse,
 	return args.Get(0).(*service.JobAnalysisResponse), args.Error(1)
 }
 
+func (m *MockLLMService) GetAnalysis(jobID string) (*service.JobAnalysisResponse, error) {
+	args := m.Called(jobID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*service.JobAnalysisResponse), args.Error(1)
+}
+
+func (m *MockLLMService) GetBatchAnalyses(jobIDs []string) (map[string]*service.JobAnalysisResponse, error) {
+	args := m.Called(jobIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[string]*service.JobAnalysisResponse), args.Error(1)
+}
+
 func (m *MockLLMService) GetConfig() config.LLMConfig {
 	args := m.Called()
 	return args.Get(0).(config.LLMConfig)
@@ -396,7 +419,7 @@ func TestJobHandler_AnalyzeJob_Success(t *testing.T) {
 			HbmUtilization: "high",
 			Description:    "资源利用率良好",
 		},
-		Issues:      []service.JobAnalysisIssue{},
+		Issues: []service.JobAnalysisIssue{},
 	}
 
 	mockLLMService.On("AnalyzeJob", "job-001").Return(expectedResult, nil)
@@ -451,4 +474,125 @@ func TestJobHandler_AnalyzeJob_Error(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	mockLLMService.AssertExpectations(t)
+}
+
+func TestJobHandler_ExportAnalysesCSV_Success(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockJobService := new(MockJobService)
+	mockLLMService := new(MockLLMService)
+	handler := NewJobHandler(mockJobService, mockLLMService)
+
+	jobName := "worker-1"
+	nodeID := "node-001"
+	status := "running"
+	jobType := "inference"
+	framework := "vllm"
+	startTime := int64(1736039823000)
+	cardCount := 2
+	modelName := "qwen2.5"
+
+	groups := []service.JobGroup{
+		{
+			MainJob: model.Job{
+				JobID:     "job-001",
+				JobName:   &jobName,
+				NodeID:    &nodeID,
+				Status:    &status,
+				JobType:   &jobType,
+				Framework: &framework,
+				StartTime: &startTime,
+			},
+			CardCount: &cardCount,
+		},
+	}
+
+	statuses := []string{"running"}
+	jobTypes := []string{"inference"}
+	frameworks := []string{"vllm"}
+	cardCounts := []int{2}
+	mockJobService.On("GetGroupedJobs", "node-001", statuses, jobTypes, frameworks, cardCounts, "", "", 1, 100000).
+		Return(groups, int64(1), nil)
+
+	mockLLMService.On("GetBatchAnalyses", []string{"job-001"}).Return(map[string]*service.JobAnalysisResponse{
+		"job-001": {
+			Summary: "=cmd()",
+			TaskType: service.JobAnalysisTaskType{
+				Category: "inference",
+			},
+			ModelInfo:       &service.JobAnalysisModelInfo{ModelName: &modelName},
+			RuntimeAnalysis: &service.JobAnalysisRuntimeAnalysis{Status: "normal"},
+			ResourceAssessment: service.JobAnalysisResourceAssessment{
+				NpuUtilization: "high",
+				HbmUtilization: "medium",
+			},
+			Issues: []service.JobAnalysisIssue{{Category: "perf"}},
+		},
+	}, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/api/v1/jobs/analyses/export?scope=filtered&nodeId=node-001&status=running&type=inference&framework=vllm&cardCount=2", nil)
+
+	handler.ExportAnalysesCSV(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Header().Get("Content-Type"), "text/csv")
+	assert.Contains(t, w.Header().Get("Content-Disposition"), "attachment; filename=\"ai-analysis-overview_")
+
+	body := strings.TrimPrefix(w.Body.String(), "\uFEFF")
+	rows, err := csv.NewReader(strings.NewReader(body)).ReadAll()
+	assert.NoError(t, err)
+	if assert.Len(t, rows, 2) {
+		assert.Equal(t, "job-001", rows[1][0])
+		assert.Equal(t, "worker-1", rows[1][1])
+		assert.Equal(t, byte(39), rows[1][8][0])
+		assert.Equal(t, "1", rows[1][14])
+	}
+
+	mockJobService.AssertExpectations(t)
+	mockLLMService.AssertExpectations(t)
+}
+
+func TestJobHandler_ExportAnalysesCSV_SelectedWithoutIDs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockJobService := new(MockJobService)
+	mockLLMService := new(MockLLMService)
+	handler := NewJobHandler(mockJobService, mockLLMService)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/api/v1/jobs/analyses/export?scope=selected", nil)
+
+	handler.ExportAnalysesCSV(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, float64(400), response["code"])
+	assert.Equal(t, "jobIds is required when scope=selected", response["message"])
+}
+
+func TestJobHandler_ExportAnalysesCSV_LLMNotConfigured(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mockJobService := new(MockJobService)
+	handler := NewJobHandler(mockJobService, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/api/v1/jobs/analyses/export", nil)
+
+	handler.ExportAnalysesCSV(c)
+
+	assert.Equal(t, http.StatusNotImplemented, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, float64(501), response["code"])
+	assert.Equal(t, "LLM service is not configured", response["message"])
 }
