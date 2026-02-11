@@ -1051,6 +1051,176 @@ func TestJobService_GetJobDetail_DeduplicateNPUCards(t *testing.T) {
 	mockMetricsRepo.AssertExpectations(t)
 }
 
+func TestJobService_GetJobDetail_TerminalAggregate_FilterByChipSetKeepsAllMatchedChips(t *testing.T) {
+	mockJobRepo := new(MockJobRepository)
+	mockParamRepo := new(MockParameterRepository)
+	mockCodeRepo := new(MockCodeRepository)
+	mockMetricsRepo := new(MockMetricsRepository)
+
+	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
+
+	nodeID := "node-001"
+	pid := int64(100)
+	jobName := "train.py"
+	statusStopped := "stopped"
+	startTime := int64(1770373780000)
+	endTime := int64(1770377380000)
+
+	job := &model.Job{
+		JobID:     "job-001",
+		NodeID:    &nodeID,
+		PID:       &pid,
+		JobName:   &jobName,
+		Status:    &statusStopped,
+		StartTime: &startTime,
+		EndTime:   &endTime,
+	}
+	mockJobRepo.On("FindByID", "job-001").Return(job, nil)
+
+	npuID0 := 0
+	chip0 := 0
+	chip1 := 1
+	mem0 := float64(1024)
+	mem1 := float64(2048)
+	npuProcs := []model.NPUProcess{
+		{NodeID: &nodeID, PID: &pid, NPUID: &npuID0, ChipID: &chip0, MemoryUsageMB: &mem0},
+		{NodeID: &nodeID, PID: &pid, NPUID: &npuID0, ChipID: &chip1, MemoryUsageMB: &mem1},
+	}
+	mockMetricsRepo.On("FindNPUProcessesByPID", nodeID, pid).Return(npuProcs, nil)
+
+	bus0 := "0000:01:00.0"
+	bus1 := "0000:02:00.0"
+	bus2 := "0000:03:00.0"
+	hbm0 := float64(1000)
+	hbm1 := float64(900)
+	hbm2 := float64(10)
+	metrics := []model.NPUMetric{
+		{NPUID: &npuID0, BusID: &bus0, HBMUsageMB: &hbm0},
+		{NPUID: &npuID0, BusID: &bus1, HBMUsageMB: &hbm1},
+		{NPUID: &npuID0, BusID: &bus2, HBMUsageMB: &hbm2},
+	}
+	mockMetricsRepo.On("FindNPUMetricsPeakInPeriod", nodeID, []int{0}, startTime, endTime).Return(metrics, nil)
+
+	detail, err := svc.GetJobDetail("job-001", true)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, detail)
+	assert.Len(t, detail.NPUCards, 1)
+	assert.Len(t, detail.NPUCards[0].Metrics, 2)
+
+	var gotBusIDs []string
+	for _, m := range detail.NPUCards[0].Metrics {
+		if m.BusID != nil {
+			gotBusIDs = append(gotBusIDs, *m.BusID)
+		}
+	}
+	assert.ElementsMatch(t, []string{bus0, bus1}, gotBusIDs)
+	mockJobRepo.AssertExpectations(t)
+	mockMetricsRepo.AssertExpectations(t)
+}
+
+func TestJobService_GetJobDetail_TerminalAggregate_NoChipIDKeepAllChips(t *testing.T) {
+	mockJobRepo := new(MockJobRepository)
+	mockParamRepo := new(MockParameterRepository)
+	mockCodeRepo := new(MockCodeRepository)
+	mockMetricsRepo := new(MockMetricsRepository)
+
+	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
+
+	nodeID := "node-001"
+	pid := int64(100)
+	jobName := "train.py"
+	statusStopped := "stopped"
+	startTime := int64(1770373780000)
+	endTime := int64(1770377380000)
+
+	job := &model.Job{
+		JobID:     "job-001",
+		NodeID:    &nodeID,
+		PID:       &pid,
+		JobName:   &jobName,
+		Status:    &statusStopped,
+		StartTime: &startTime,
+		EndTime:   &endTime,
+	}
+	mockJobRepo.On("FindByID", "job-001").Return(job, nil)
+
+	npuID0 := 0
+	mem0 := float64(1024)
+	npuProcs := []model.NPUProcess{
+		{NodeID: &nodeID, PID: &pid, NPUID: &npuID0, MemoryUsageMB: &mem0},
+	}
+	mockMetricsRepo.On("FindNPUProcessesByPID", nodeID, pid).Return(npuProcs, nil)
+
+	bus0 := "0000:01:00.0"
+	bus1 := "0000:02:00.0"
+	hbm0 := float64(1200)
+	hbm1 := float64(30)
+	metrics := []model.NPUMetric{
+		{NPUID: &npuID0, BusID: &bus0, HBMUsageMB: &hbm0},
+		{NPUID: &npuID0, BusID: &bus1, HBMUsageMB: &hbm1},
+	}
+	mockMetricsRepo.On("FindNPUMetricsPeakInPeriod", nodeID, []int{0}, startTime, endTime).Return(metrics, nil)
+
+	detail, err := svc.GetJobDetail("job-001", true)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, detail)
+	assert.Len(t, detail.NPUCards, 1)
+	assert.Len(t, detail.NPUCards[0].Metrics, 2)
+	mockJobRepo.AssertExpectations(t)
+	mockMetricsRepo.AssertExpectations(t)
+}
+
+func TestJobService_GetJobDetail_TerminalNonAggregate_FilterSnapshotByChipID(t *testing.T) {
+	mockJobRepo := new(MockJobRepository)
+	mockParamRepo := new(MockParameterRepository)
+	mockCodeRepo := new(MockCodeRepository)
+	mockMetricsRepo := new(MockMetricsRepository)
+
+	svc := NewJobService(mockJobRepo, mockParamRepo, mockCodeRepo, mockMetricsRepo)
+
+	nodeID := "node-001"
+	pid := int64(100)
+	jobName := "worker"
+	statusStopped := "stopped"
+	startTime := int64(1770373780000)
+	endTime := int64(1770377380000)
+
+	job := &model.Job{
+		JobID:     "job-001",
+		NodeID:    &nodeID,
+		PID:       &pid,
+		JobName:   &jobName,
+		Status:    &statusStopped,
+		StartTime: &startTime,
+		EndTime:   &endTime,
+	}
+	mockJobRepo.On("FindByID", "job-001").Return(job, nil)
+
+	npuID0 := 0
+	chip1 := 1
+	mem0 := float64(1024)
+	snapshot := `[{"busId":"0000:01:00.0","hbmUsageMb":1500,"hbmTotalMb":32768},{"busId":"0000:02:00.0","hbmUsageMb":800,"hbmTotalMb":32768}]`
+	npuProcs := []model.NPUProcess{
+		{NodeID: &nodeID, PID: &pid, NPUID: &npuID0, ChipID: &chip1, MemoryUsageMB: &mem0, CardMetricsSnapshot: &snapshot},
+	}
+	mockMetricsRepo.On("FindNPUProcessesByPID", nodeID, pid).Return(npuProcs, nil)
+	mockMetricsRepo.On("FindNPUMetricsPeakInPeriod", nodeID, []int{0}, startTime, endTime).Return([]model.NPUMetric{}, nil)
+
+	detail, err := svc.GetJobDetail("job-001", false)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, detail)
+	assert.Len(t, detail.NPUCards, 1)
+	assert.Len(t, detail.NPUCards[0].Metrics, 1)
+	if assert.NotNil(t, detail.NPUCards[0].Metrics[0].BusID) {
+		assert.Equal(t, "0000:02:00.0", *detail.NPUCards[0].Metrics[0].BusID)
+	}
+	mockJobRepo.AssertExpectations(t)
+	mockMetricsRepo.AssertExpectations(t)
+}
+
 func TestJobService_GetJobDetail_NoNPU(t *testing.T) {
 	mockJobRepo := new(MockJobRepository)
 	mockParamRepo := new(MockParameterRepository)

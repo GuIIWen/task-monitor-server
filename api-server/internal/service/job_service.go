@@ -143,16 +143,19 @@ func (s *JobService) GetJobDetail(jobID string, aggregate bool) (*JobDetailRespo
 		}
 	}
 
-	// 2. 按 npu_id 去重（取最大显存占用），同时收集 chip_id 用于精确匹配
+	// 2. 按 npu_id 去重（取最大显存占用），同时收集 chip_id 集合用于精确匹配
 	cardMemory := make(map[int]float64)
-	procChipIDs := make(map[int]*int) // npu_id → chip_id（来自 npu_processes）
+	procChipIDs := make(map[int]map[int]struct{}) // npu_id -> {chip_id: {}}
 	for _, np := range npuProcs {
 		if np.NPUID == nil {
 			continue
 		}
 		npuID := *np.NPUID
 		if np.ChipID != nil {
-			procChipIDs[npuID] = np.ChipID
+			if _, ok := procChipIDs[npuID]; !ok {
+				procChipIDs[npuID] = make(map[int]struct{})
+			}
+			procChipIDs[npuID][*np.ChipID] = struct{}{}
 		}
 		if np.MemoryUsageMB == nil {
 			if _, ok := cardMemory[npuID]; !ok {
@@ -187,10 +190,6 @@ func (s *JobService) GetJobDetail(jobID string, aggregate bool) (*JobDetailRespo
 					metricsByNPU[*m.NPUID] = append(metricsByNPU[*m.NPUID], m)
 				}
 			}
-			// 子进程视图：过滤空闲 chip，只保留实际使用的
-			if !aggregate && isTerminalJobStatus(job.Status) {
-				metricsByNPU = filterChipsByID(metricsByNPU, procChipIDs)
-			}
 		}
 
 		// 3.1 npu_metrics 为空时，从 npu_processes.card_metrics_snapshot 回退
@@ -201,6 +200,10 @@ func (s *JobService) GetJobDetail(jobID string, aggregate bool) (*JobDetailRespo
 					metricsByNPU[*m.NPUID] = append(metricsByNPU[*m.NPUID], m)
 				}
 			}
+		}
+
+		if isTerminalJobStatus(job.Status) {
+			metricsByNPU = filterChipsByID(metricsByNPU, procChipIDs, aggregate)
 		}
 
 		// 4. 组装 NPUCardInfo（按 npu_id 有序输出）
@@ -646,46 +649,54 @@ func parseSnapshotMetrics(npuProcs []model.NPUProcess, nodeID string) []model.NP
 	return result
 }
 
-// filterChipsByID 根据 npu_processes 中记录的 chip_id 精确匹配 chip。
-// 对于有 chip_id 的卡，按 bus_id 排序后取对应索引的 chip；
-// 对于没有 chip_id 的卡（历史数据），回退到启发式过滤。
-func filterChipsByID(metricsByNPU map[int][]model.NPUMetric, procChipIDs map[int]*int) map[int][]model.NPUMetric {
-	hasChipID := false
-	for _, chips := range metricsByNPU {
+// filterChipsByID 根据 npu_processes 中记录的 chip_id 集合过滤 chip。
+// 规则：
+// 1. 该卡有 chip_id 集合：按 bus_id 排序后保留集合内全部索引；若过滤结果为空则回退原始 chips。
+// 2. 该卡无 chip_id 集合：aggregate=true 保持原样（优先保召回）；aggregate=false 回退启发式过滤。
+func filterChipsByID(metricsByNPU map[int][]model.NPUMetric, procChipIDs map[int]map[int]struct{}, aggregate bool) map[int][]model.NPUMetric {
+	for npuID, chips := range metricsByNPU {
 		if len(chips) <= 1 {
 			continue
 		}
-		npuID := 0
-		if chips[0].NPUID != nil {
-			npuID = *chips[0].NPUID
-		}
-		cid, ok := procChipIDs[npuID]
-		if !ok || cid == nil {
+
+		chipSet := procChipIDs[npuID]
+		if len(chipSet) > 0 {
+			// 按 bus_id 排序，chip_id 对应排序后的索引
+			sortedChips := append([]model.NPUMetric(nil), chips...)
+			sort.Slice(sortedChips, func(i, j int) bool {
+				bi, bj := "", ""
+				if sortedChips[i].BusID != nil {
+					bi = *sortedChips[i].BusID
+				}
+				if sortedChips[j].BusID != nil {
+					bj = *sortedChips[j].BusID
+				}
+				return bi < bj
+			})
+
+			filtered := make([]model.NPUMetric, 0, len(sortedChips))
+			for idx, chip := range sortedChips {
+				if _, ok := chipSet[idx]; ok {
+					filtered = append(filtered, chip)
+				}
+			}
+
+			// chip_id 与 bus_id 映射异常时保留原始 chips，避免误删
+			if len(filtered) > 0 {
+				metricsByNPU[npuID] = filtered
+			}
 			continue
 		}
-		hasChipID = true
 
-		// 按 bus_id 排序，chip_id 对应排序后的索引
-		sort.Slice(chips, func(i, j int) bool {
-			bi, bj := "", ""
-			if chips[i].BusID != nil {
-				bi = *chips[i].BusID
-			}
-			if chips[j].BusID != nil {
-				bj = *chips[j].BusID
-			}
-			return bi < bj
-		})
-
-		idx := *cid
-		if idx >= 0 && idx < len(chips) {
-			metricsByNPU[npuID] = []model.NPUMetric{chips[idx]}
+		if aggregate {
+			continue
 		}
-	}
 
-	// 没有任何卡有 chip_id 信息，回退到启发式过滤
-	if !hasChipID {
-		return filterActiveChips(metricsByNPU)
+		// 子进程视图在缺少 chip_id 时对单卡做启发式过滤
+		filteredCard := filterActiveChips(map[int][]model.NPUMetric{npuID: chips})
+		if fc, ok := filteredCard[npuID]; ok {
+			metricsByNPU[npuID] = fc
+		}
 	}
 	return metricsByNPU
 }
