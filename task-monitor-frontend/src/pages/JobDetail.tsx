@@ -455,7 +455,7 @@ const JobDetail: React.FC = () => {
         )}
         {!analysisLoading && !analysisData && savedAnalysis?.status === 'failed' && (
           <Typography.Text type="danger">
-            分析失败，请点击"重新分析"重试。
+            分析失败{savedAnalysis.error ? `：${savedAnalysis.error}` : ''}，请点击"重新分析"重试。
           </Typography.Text>
         )}
         {!analysisLoading && !analysisData && savedAnalysis?.status !== 'failed' && (

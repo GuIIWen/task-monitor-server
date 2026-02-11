@@ -101,6 +101,7 @@ type JobAnalysisResponse struct {
 type AnalysisWithStatus struct {
 	Status string               `json:"status"` // analyzing / completed / failed
 	Result *JobAnalysisResponse `json:"result"`
+	Error  string               `json:"error,omitempty"`
 }
 
 // LLMServiceInterface LLM服务接口

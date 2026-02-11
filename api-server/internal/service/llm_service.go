@@ -79,6 +79,8 @@ func (s *LLMService) GetAnalysis(jobID string) (*AnalysisWithStatus, error) {
 		if err := json.Unmarshal([]byte(analysis.Result), &result); err == nil {
 			resp.Result = &result
 		}
+	} else if analysis.Status == "failed" && analysis.Result != "" {
+		resp.Error = analysis.Result
 	}
 	return resp, nil
 }
@@ -144,7 +146,7 @@ func (s *LLMService) doAnalyze(jobID string) {
 	userPrompt, err := s.buildUserPrompt(jobID)
 	if err != nil {
 		log.Printf("analyze job %s: build prompt failed: %v", jobID, err)
-		s.analysisRepo.UpdateStatus(jobID, "failed", "")
+		s.analysisRepo.UpdateStatus(jobID, "failed", err.Error())
 		return
 	}
 
@@ -152,7 +154,7 @@ func (s *LLMService) doAnalyze(jobID string) {
 	content, err := s.callLLM(systemPrompt, userPrompt)
 	if err != nil {
 		log.Printf("analyze job %s: call LLM failed: %v", jobID, err)
-		s.analysisRepo.UpdateStatus(jobID, "failed", "")
+		s.analysisRepo.UpdateStatus(jobID, "failed", err.Error())
 		return
 	}
 
@@ -160,7 +162,7 @@ func (s *LLMService) doAnalyze(jobID string) {
 	result, err := s.parseResponse(content)
 	if err != nil {
 		log.Printf("analyze job %s: parse response failed: %v", jobID, err)
-		s.analysisRepo.UpdateStatus(jobID, "failed", "")
+		s.analysisRepo.UpdateStatus(jobID, "failed", err.Error())
 		return
 	}
 

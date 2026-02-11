@@ -162,6 +162,7 @@ export interface JobAnalysis {
 export interface JobAnalysisWithStatus {
   status: 'analyzing' | 'completed' | 'failed';
   result: JobAnalysis | null;
+  error?: string;
 }
 
 export interface GroupedJobListResponse {
