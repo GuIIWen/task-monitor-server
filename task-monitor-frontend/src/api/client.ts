@@ -29,6 +29,9 @@ apiClient.interceptors.request.use(
 // 响应拦截器
 apiClient.interceptors.response.use(
   (response) => {
+    if (response.config.responseType === 'blob' || response.config.responseType === 'arraybuffer') {
+      return response.data;
+    }
     // API返回格式为 {code, message, data}，解包到data字段
     return response.data.data;
   },

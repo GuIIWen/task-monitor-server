@@ -1,7 +1,8 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Table, Space, Button, Tag, Modal, Progress, Tooltip } from 'antd';
+import { Table, Space, Button, Tag, Modal, Progress, Tooltip, Dropdown, message } from 'antd';
 import { CheckCircleOutlined, WarningOutlined, LoadingOutlined, MinusOutlined, ExpandOutlined, CloseOutlined } from '@ant-design/icons';
 import type { TablePaginationConfig, SorterResult, FilterValue } from 'antd/es/table/interface';
+import type { MenuProps } from 'antd';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { StatusBadge } from '@/components/Common';
 import { useGroupedJobs, useDistinctCardCounts } from '@/hooks/useJobs';
@@ -40,6 +41,7 @@ const JobList: React.FC = () => {
   });
 
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
+  const [exportLoading, setExportLoading] = useState(false);
 
   // 批量分析浮动进度状态
   const BATCH_KEY = 'batch-analyze-id';
@@ -236,6 +238,50 @@ const JobList: React.FC = () => {
       },
     });
   };
+
+  const handleExport = useCallback(async (scope: 'filtered' | 'page' | 'selected') => {
+    if (scope === 'selected' && selectedRowKeys.length === 0) {
+      message.warning('请先勾选要导出的作业');
+      return;
+    }
+
+    const exportParams: JobListParams & { scope: 'filtered' | 'page' | 'selected'; jobIds?: string[] } = {
+      ...params,
+      scope,
+    };
+
+    if (scope === 'selected') {
+      exportParams.jobIds = selectedRowKeys;
+    }
+    if (scope === 'filtered') {
+      delete exportParams.page;
+      delete exportParams.pageSize;
+    }
+
+    try {
+      setExportLoading(true);
+      const blob = await jobApi.exportAnalysesCSV(exportParams);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ai-analysis-overview_' + new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-') + '.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      message.success('导出成功');
+    } catch (e: any) {
+      message.error(e?.message || '导出失败');
+    } finally {
+      setExportLoading(false);
+    }
+  }, [params, selectedRowKeys]);
+
+  const exportMenuItems: MenuProps['items'] = [
+    { key: 'filtered', label: '导出当前筛选' },
+    { key: 'page', label: '导出当前页' },
+    { key: 'selected', label: '导出已勾选', disabled: selectedRowKeys.length === 0 },
+  ];
 
   const columns = [
     {
@@ -501,13 +547,23 @@ const JobList: React.FC = () => {
         <span>
           {selectedRowKeys.length > 0 ? `已选择 ${selectedRowKeys.length} 项` : ''}
         </span>
-        <Button
-          type="primary"
-          disabled={selectedRowKeys.length === 0}
-          onClick={handleBatchAnalyze}
-        >
-          批量分析
-        </Button>
+        <Space>
+          <Button
+            type="primary"
+            disabled={selectedRowKeys.length === 0}
+            onClick={handleBatchAnalyze}
+          >
+            批量分析
+          </Button>
+          <Dropdown
+            menu={{
+              items: exportMenuItems,
+              onClick: ({ key }) => handleExport(key as 'filtered' | 'page' | 'selected'),
+            }}
+          >
+            <Button loading={exportLoading}>导出</Button>
+          </Dropdown>
+        </Space>
       </div>
       <Table<JobGroup>
         columns={columns}
