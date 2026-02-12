@@ -130,10 +130,6 @@ const JobDetail: React.FC = () => {
     try {
       await jobApi.analyzeJob(jobId, selectedModelID ? { modelId: selectedModelID } : undefined);
       queryClient.invalidateQueries({ queryKey: ['jobAnalysis', jobId] });
-      if (selectedModelID) {
-        const selectedModel = modelOptions.find(m => m.id === selectedModelID);
-        message.success('分析完成（模型：' + (selectedModel?.name || selectedModelID) + '）');
-      }
     } catch (e: any) {
       message.error(e?.message || 'AI 分析失败');
     }
