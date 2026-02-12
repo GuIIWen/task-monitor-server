@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Form, Input, Button, Card, message, Typography } from 'antd';
+import React, { useEffect, useState } from 'react';
+import { Form, Input, Button, Card, message, Typography, Modal } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -18,7 +18,19 @@ const Login: React.FC = () => {
   const setAuth = useAuthStore((s) => s.setAuth);
 
   // 优先使用 URL query param（401 跳转），其次使用 location.state（路由守卫跳转）
-  const redirectTo = searchParams.get('redirect') || (location.state as any)?.from || '/';
+  const rawRedirectTo = searchParams.get('redirect') || (location.state as any)?.from;
+  const redirectTo =
+    typeof rawRedirectTo === 'string' && rawRedirectTo.startsWith('/') && !rawRedirectTo.startsWith('/login')
+      ? rawRedirectTo
+      : '/';
+
+  useEffect(() => {
+    // 清理可能残留的全局弹窗遮罩，避免登录后页面仍不可点击
+    Modal.destroyAll();
+    document.body.classList.remove('ant-scrolling-effect');
+    document.body.style.removeProperty('overflow');
+    document.body.style.removeProperty('width');
+  }, []);
 
   const handleLogin = async (values: { username: string; password: string }) => {
     try {
@@ -26,6 +38,7 @@ const Login: React.FC = () => {
       const res = await authApi.login(values);
       setAuth(res.token, res.username);
       // 清除旧的查询缓存，防止重新登录后大量过期请求同时重发导致页面卡死
+      await queryClient.cancelQueries();
       queryClient.clear();
       resetAuthRedirectFlag();
       message.success('登录成功');

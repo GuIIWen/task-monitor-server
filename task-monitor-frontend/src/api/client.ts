@@ -16,10 +16,32 @@ const apiClient = axios.create({
 // 防止多个 401 同时触发重复跳转
 let isRedirectingToLogin = false;
 
+function extractBearerToken(authorization: unknown): string | null {
+  if (typeof authorization !== 'string') {
+    return null;
+  }
+  const prefix = 'Bearer ';
+  if (!authorization.startsWith(prefix)) {
+    return null;
+  }
+  return authorization.slice(prefix.length);
+}
+
+function getRequestToken(error: any): string | null {
+  const headers = error?.config?.headers;
+  const authorization =
+    headers?.Authorization ??
+    headers?.authorization ??
+    (typeof headers?.get === 'function' ? headers.get('Authorization') : undefined);
+  return extractBearerToken(authorization);
+}
+
 // 请求拦截器：无 token 时直接拦截（登录接口除外）
 apiClient.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
+    (config as any).__authToken = token;
+
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     } else if (!config.url?.includes('/auth/')) {
@@ -45,14 +67,30 @@ apiClient.interceptors.response.use(
       return Promise.reject({ code: 401, message: error.message });
     }
 
+    // 登录接口返回 401 属于账号密码错误，不触发过期跳转
+    if (error.response?.status === 401 && error.config?.url?.includes('/auth/login')) {
+      const errorMessage = error.response?.data?.message || error.message || '登录失败';
+      return Promise.reject({ code: 401, message: errorMessage, details: error.response?.data });
+    }
+
     // 401：清凭证 + 跳登录页（只跳一次）
     if (error.response?.status === 401) {
+      const latestToken = localStorage.getItem('token');
+      const requestToken = error?.config?.__authToken ?? getRequestToken(error);
+
+      // 旧 token 的延迟 401，不应覆盖新登录态
+      if (latestToken && latestToken !== requestToken) {
+        return Promise.reject({ code: 401, message: '请求已过期，请重试' });
+      }
+
       localStorage.removeItem('token');
       localStorage.removeItem('username');
-      if (!isRedirectingToLogin) {
+
+      const isOnLoginPage = window.location.pathname.startsWith('/login');
+      if (!isRedirectingToLogin && !isOnLoginPage) {
         isRedirectingToLogin = true;
-        const currentPath = window.location.pathname;
-        window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
+        const currentPath = `${window.location.pathname}${window.location.search}`;
+        window.location.replace(`/login?redirect=${encodeURIComponent(currentPath || '/')}`);
       }
       return Promise.reject({ code: 401, message: '登录已过期' });
     }
