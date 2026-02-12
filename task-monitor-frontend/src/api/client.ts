@@ -13,13 +13,17 @@ const apiClient = axios.create({
   },
 });
 
-// 请求拦截器
+// 防止多个 401 同时触发重复跳转
+let isRedirectingToLogin = false;
+
+// 请求拦截器：无 token 时直接拦截（登录接口除外）
 apiClient.interceptors.request.use(
   (config) => {
-    // 添加认证token（如果需要）
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    } else if (!config.url?.includes('/auth/')) {
+      return Promise.reject({ __cancelled: true, message: '未登录' });
     }
     return config;
   },
@@ -36,10 +40,21 @@ apiClient.interceptors.response.use(
     return response.data.data;
   },
   (error) => {
-    // 统一错误处理
+    // 被请求拦截器取消的无 token 请求，静默拒绝
+    if (error.__cancelled) {
+      return Promise.reject({ code: 401, message: error.message });
+    }
+
+    // 401：清凭证 + 跳登录页（只跳一次）
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('username');
+      if (!isRedirectingToLogin) {
+        isRedirectingToLogin = true;
+        const currentPath = window.location.pathname;
+        window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
+      }
+      return Promise.reject({ code: 401, message: '登录已过期' });
     }
 
     const errorMessage = error.response?.data?.message || error.message || '请求失败';
@@ -52,5 +67,10 @@ apiClient.interceptors.response.use(
     });
   }
 );
+
+/** 登录成功后重置跳转标记 */
+export function resetAuthRedirectFlag() {
+  isRedirectingToLogin = false;
+}
 
 export default apiClient;
