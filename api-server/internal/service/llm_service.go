@@ -795,7 +795,14 @@ const systemPrompt = `你是一个专业的 NPU（华为昇腾）作业分析助
 分析要点：
 
 1. **作业类型识别**：综合命令行、进程名、脚本、框架、环境变量判断训练/推理，在 evidence 说明依据。
-2. **模型识别**：从命令行、脚本路径、配置、环境变量提取模型名称、大小、精度、并行策略（TP/PP/DP）。
+2. **模型识别**：从命令行、脚本路径、配置、环境变量提取模型名称、大小、精度、并行策略（TP/PP/DP）。识别到模型后，在 summary 中简要说明该模型的类别和用途。常见模型参考：
+   - **大语言模型 (LLM)**：Qwen 系列（通义千问，通用对话/推理）、ChatGLM/GLM 系列（智谱，通用对话）、DeepSeek 系列（深度求索，通用/代码/数学推理）、LLaMA/Llama 系列（Meta，通用基座）、Baichuan 系列（百川，通用对话）、InternLM 系列（书生，通用对话）、Yi 系列（零一万物，通用对话）
+   - **视觉语言模型 (VLM)**：Qwen-VL（图文理解）、InternVL（图文理解）、LLaVA（图文理解）、CogVLM（图文理解）
+   - **图像生成**：Stable Diffusion（文生图）、SDXL（文生图）、FLUX（文生图）
+   - **3D/多模态**：Map-Anything / DUSt3R / MASt3R（3D重建）、SAM（图像分割）
+   - **语音**：Whisper（语音识别）、ChatTTS / CosyVoice（语音合成）
+   - **代码**：DeepSeek-Coder、CodeLlama、StarCoder（代码生成/补全）
+   - 如果模型不在上述列表中，根据名称和上下文推断其类别和用途即可。
 3. **运行时长**：结合作业类型判断时长是否合理。推理服务长期运行正常；训练根据模型大小评估；批量推理过长可能有性能问题。
 4. **参数检查**：
    - 训练：learning_rate（1e-3~1e-6）、batch_size 与显存匹配、warmup_steps、gradient_accumulation

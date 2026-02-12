@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/task-monitor/api-server/internal/model"
 	"github.com/task-monitor/api-server/internal/service"
 	"github.com/task-monitor/api-server/internal/utils"
 	"gorm.io/gorm"
@@ -468,13 +469,24 @@ func (h *JobHandler) ExportAnalysesCSV(c *gin.Context) {
 	defer writer.Flush()
 
 	_ = writer.Write([]string{
-		"jobId", "jobName", "nodeId", "status", "jobType", "framework", "startTime", "cardCount",
+		"jobId", "jobName", "nodeId", "status", "jobType", "framework", "processName", "commandLine", "startupScript", "startTime", "cardCount",
+		"processMemoryMb", "hbmUsageMb", "hbmTotalMb", "hbmUsagePercent", "aicoreUsagePercent", "hardwareOccupancy",
 		"summary", "taskType", "modelName", "runtimeStatus", "npuUtilization", "hbmUtilization", "issuesCount",
 	})
 
 	for _, group := range groups {
 		job := group.MainJob
 		analysis := analyses[job.JobID]
+
+		startupScript := "-"
+		if codes, codeErr := h.jobService.GetJobCode(job.JobID); codeErr == nil {
+			startupScript = extractStartupScript(codes)
+		}
+
+		hwStats := exportHardwareStats{}
+		if detail, detailErr := h.jobService.GetJobDetail(job.JobID, true); detailErr == nil && detail != nil {
+			hwStats = buildExportHardwareStats(detail.NPUCards)
+		}
 
 		cardCount := "unknown"
 		if group.CardCount != nil {
@@ -509,8 +521,17 @@ func (h *JobHandler) ExportAnalysesCSV(c *gin.Context) {
 			sanitizeCSVCell(valueOrDash(job.Status)),
 			sanitizeCSVCell(valueOrDash(job.JobType)),
 			sanitizeCSVCell(valueOrDash(job.Framework)),
+			sanitizeCSVCell(valueOrDash(job.ProcessName)),
+			sanitizeCSVCell(valueOrDash(job.CommandLine)),
+			sanitizeCSVCell(startupScript),
 			sanitizeCSVCell(formatTimeMs(job.StartTime)),
 			sanitizeCSVCell(cardCount),
+			sanitizeCSVCell(hwStats.ProcessMemoryMB),
+			sanitizeCSVCell(hwStats.HBMUsageMB),
+			sanitizeCSVCell(hwStats.HBMTotalMB),
+			sanitizeCSVCell(hwStats.HBMUsagePercent),
+			sanitizeCSVCell(hwStats.AICoreUsagePercent),
+			sanitizeCSVCell(hwStats.HardwareOccupancy),
 			sanitizeCSVCell(summary),
 			sanitizeCSVCell(taskType),
 			sanitizeCSVCell(modelName),
@@ -520,6 +541,96 @@ func (h *JobHandler) ExportAnalysesCSV(c *gin.Context) {
 			sanitizeCSVCell(issuesCount),
 		})
 	}
+}
+
+type exportHardwareStats struct {
+	ProcessMemoryMB    string
+	HBMUsageMB         string
+	HBMTotalMB         string
+	HBMUsagePercent    string
+	AICoreUsagePercent string
+	HardwareOccupancy  string
+}
+
+func buildExportHardwareStats(cards []service.NPUCardInfo) exportHardwareStats {
+	if len(cards) == 0 {
+		return exportHardwareStats{
+			ProcessMemoryMB:    "-",
+			HBMUsageMB:         "-",
+			HBMTotalMB:         "-",
+			HBMUsagePercent:    "-",
+			AICoreUsagePercent: "-",
+			HardwareOccupancy:  "-",
+		}
+	}
+
+	var (
+		processMemoryMB float64
+		hbmUsageMB      float64
+		hbmTotalMB      float64
+		aicoreSum       float64
+		aicoreCount     int
+		chipCount       int
+	)
+
+	for _, card := range cards {
+		processMemoryMB += card.MemoryUsageMB
+		chipCount += len(card.Metrics)
+		for _, metric := range card.Metrics {
+			if metric.HBMUsageMB != nil {
+				hbmUsageMB += *metric.HBMUsageMB
+			}
+			if metric.HBMTotalMB != nil {
+				hbmTotalMB += *metric.HBMTotalMB
+			}
+			if metric.AICoreUsagePercent != nil {
+				aicoreSum += *metric.AICoreUsagePercent
+				aicoreCount++
+			}
+		}
+	}
+
+	hbmUsagePercent := "-"
+	if hbmTotalMB > 0 {
+		hbmUsagePercent = fmt.Sprintf("%.2f", hbmUsageMB*100/hbmTotalMB)
+	}
+
+	aicoreUsage := "-"
+	if aicoreCount > 0 {
+		aicoreUsage = fmt.Sprintf("%.2f", aicoreSum/float64(aicoreCount))
+	}
+
+	occupancy := fmt.Sprintf("cards=%d,chips=%d", len(cards), chipCount)
+	if aicoreUsage != "-" {
+		occupancy = fmt.Sprintf("%s,aicore=%s%%", occupancy, aicoreUsage)
+	}
+
+	return exportHardwareStats{
+		ProcessMemoryMB:    fmt.Sprintf("%.2f", processMemoryMB),
+		HBMUsageMB:         fmt.Sprintf("%.2f", hbmUsageMB),
+		HBMTotalMB:         fmt.Sprintf("%.2f", hbmTotalMB),
+		HBMUsagePercent:    hbmUsagePercent,
+		AICoreUsagePercent: aicoreUsage,
+		HardwareOccupancy:  occupancy,
+	}
+}
+
+func extractStartupScript(codes []model.Code) string {
+	if len(codes) == 0 {
+		return "-"
+	}
+	code := codes[0]
+	paths := make([]string, 0, 2)
+	if code.ScriptPath != nil && strings.TrimSpace(*code.ScriptPath) != "" {
+		paths = append(paths, strings.TrimSpace(*code.ScriptPath))
+	}
+	if code.ShScriptPath != nil && strings.TrimSpace(*code.ShScriptPath) != "" {
+		paths = append(paths, strings.TrimSpace(*code.ShScriptPath))
+	}
+	if len(paths) == 0 {
+		return "-"
+	}
+	return strings.Join(paths, " | ")
 }
 
 func dedupeStrings(items []string) []string {

@@ -539,6 +539,10 @@ func TestJobHandler_ExportAnalysesCSV_Success(t *testing.T) {
 	startTime := int64(1736039823000)
 	cardCount := 2
 	modelName := "qwen2.5"
+	scriptPath := "/workspace/train.py"
+	hbmUsage := 2048.0
+	hbmTotal := 4096.0
+	aiCore := 88.0
 
 	groups := []service.JobGroup{
 		{
@@ -561,6 +565,20 @@ func TestJobHandler_ExportAnalysesCSV_Success(t *testing.T) {
 	cardCounts := []int{2}
 	mockJobService.On("GetGroupedJobs", "node-001", statuses, jobTypes, frameworks, cardCounts, "", "", 1, 100000).
 		Return(groups, int64(1), nil)
+	mockJobService.On("GetJobCode", "job-001").Return([]model.Code{{ScriptPath: &scriptPath}}, nil)
+	mockJobService.On("GetJobDetail", "job-001", true).Return(&service.JobDetailResponse{
+		NPUCards: []service.NPUCardInfo{
+			{
+				NpuID:         0,
+				MemoryUsageMB: 1024,
+				Metrics: []model.NPUMetric{{
+					HBMUsageMB:         &hbmUsage,
+					HBMTotalMB:         &hbmTotal,
+					AICoreUsagePercent: &aiCore,
+				}},
+			},
+		},
+	}, nil)
 
 	mockLLMService.On("GetBatchAnalyses", []string{"job-001"}).Return(map[string]*service.JobAnalysisResponse{
 		"job-001": {
@@ -592,10 +610,20 @@ func TestJobHandler_ExportAnalysesCSV_Success(t *testing.T) {
 	rows, err := csv.NewReader(strings.NewReader(body)).ReadAll()
 	assert.NoError(t, err)
 	if assert.Len(t, rows, 2) {
-		assert.Equal(t, "job-001", rows[1][0])
-		assert.Equal(t, "worker-1", rows[1][1])
-		assert.Equal(t, byte(39), rows[1][8][0])
-		assert.Equal(t, "1", rows[1][14])
+		headerIdx := make(map[string]int, len(rows[0]))
+		for i, name := range rows[0] {
+			headerIdx[name] = i
+		}
+		assert.Equal(t, "job-001", rows[1][headerIdx["jobId"]])
+		assert.Equal(t, "worker-1", rows[1][headerIdx["jobName"]])
+		assert.Equal(t, scriptPath, rows[1][headerIdx["startupScript"]])
+		assert.Equal(t, "1024.00", rows[1][headerIdx["processMemoryMb"]])
+		assert.Equal(t, "2048.00", rows[1][headerIdx["hbmUsageMb"]])
+		assert.Equal(t, "4096.00", rows[1][headerIdx["hbmTotalMb"]])
+		assert.Equal(t, "50.00", rows[1][headerIdx["hbmUsagePercent"]])
+		assert.Equal(t, "88.00", rows[1][headerIdx["aicoreUsagePercent"]])
+		assert.Equal(t, byte(39), rows[1][headerIdx["summary"]][0])
+		assert.Equal(t, "1", rows[1][headerIdx["issuesCount"]])
 	}
 
 	mockJobService.AssertExpectations(t)
