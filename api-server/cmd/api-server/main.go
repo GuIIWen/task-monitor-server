@@ -55,7 +55,7 @@ func main() {
 	// 初始化Service
 	nodeService := service.NewNodeService(nodeRepo)
 	jobService := service.NewJobService(jobRepo, paramRepo, codeRepo, metricsRepo)
-	authService := service.NewAuthService(userRepo, cfg.JWT.Secret, cfg.JWT.ExpireHour)
+	authService := service.NewAuthService(userRepo, cfg.JWT.Secret, cfg.JWT.ExpireMinutes)
 
 	// 初始化LLM Service（始终创建，可通过页面启用/禁用）
 	jobAnalysisRepo := repository.NewJobAnalysisRepository(db)

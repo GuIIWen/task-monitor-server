@@ -15,20 +15,20 @@ import (
 
 // AuthService 认证服务
 type AuthService struct {
-	userRepo   repository.UserRepositoryInterface
-	jwtSecret  string
-	expireHour int
+	userRepo      repository.UserRepositoryInterface
+	jwtSecret     string
+	expireMinutes int
 }
 
 // NewAuthService 创建认证服务
-func NewAuthService(userRepo repository.UserRepositoryInterface, jwtSecret string, expireHour int) *AuthService {
-	if expireHour <= 0 {
-		expireHour = 24
+func NewAuthService(userRepo repository.UserRepositoryInterface, jwtSecret string, expireMinutes int) *AuthService {
+	if expireMinutes <= 0 {
+		expireMinutes = 1440 // 24h
 	}
 	return &AuthService{
-		userRepo:   userRepo,
-		jwtSecret:  jwtSecret,
-		expireHour: expireHour,
+		userRepo:      userRepo,
+		jwtSecret:     jwtSecret,
+		expireMinutes: expireMinutes,
 	}
 }
 
@@ -44,7 +44,7 @@ func (s *AuthService) Login(username, password string) (string, error) {
 	claims := jwt.MapClaims{
 		"user_id":  user.ID,
 		"username": user.Username,
-		"exp":      time.Now().Add(time.Duration(s.expireHour) * time.Hour).Unix(),
+		"exp":      time.Now().Add(time.Duration(s.expireMinutes) * time.Minute).Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(s.jwtSecret))

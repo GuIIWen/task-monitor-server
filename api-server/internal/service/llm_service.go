@@ -786,7 +786,7 @@ func formatDuration(seconds int64) string {
 const systemPrompt = `你是一个专业的 NPU（华为昇腾）作业分析助手。请根据用户提供的作业信息进行分析，严格按以下 JSON 格式返回，不要输出其他内容：
 
 {
-  "summary": "200字以内的作业概要，包含作业类型、模型名称、运行时长、资源使用等关键信息",
+  "summary": "200字以内的作业概要，包含作业类型、模型名称及其类别与用途（如：大语言模型/视觉语言模型/3D重建模型/图像生成模型/语音模型等）、运行时长、资源使用等关键信息",
   "taskType": {
     "category": "training / inference / unknown",
     "subCategory": "pre-training / fine-tuning / rlhf / evaluation / serving / batch-inference 或 null",

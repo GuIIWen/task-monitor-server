@@ -30,8 +30,8 @@ type LLMModelConfig struct {
 
 // JWTConfig JWT认证配置
 type JWTConfig struct {
-	Secret     string `yaml:"secret"`
-	ExpireHour int    `yaml:"expire_hour"`
+	Secret        string `yaml:"secret"`
+	ExpireMinutes int    `yaml:"expire_minutes"`
 }
 
 // LLMConfig LLM服务配置
