@@ -340,7 +340,7 @@ func (h *JobHandler) BatchAnalyze(c *gin.Context) {
 					return
 				default:
 				}
-				if _, err := h.llmService.AnalyzeJob(id); err != nil {
+				if err := h.llmService.AnalyzeJobSync(id); err != nil {
 					atomic.AddInt64(&state.Failed, 1)
 					state.mu.Lock()
 					state.FailedItems = append(state.FailedItems, failedItem{JobID: id, Error: err.Error()})

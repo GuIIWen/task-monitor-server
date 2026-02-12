@@ -157,14 +157,41 @@ func (s *LLMService) analyzeJobAsync(jobID, modelID string) (*AnalysisWithStatus
 	return &AnalysisWithStatus{Status: "analyzing"}, nil
 }
 
-// doAnalyze 后台执行实际的 LLM 分析
-func (s *LLMService) doAnalyze(jobID string, selectedModel config.LLMModelConfig) {
+// AnalyzeJobSync 同步分析作业（用于批量分析，阻塞直到完成）
+func (s *LLMService) AnalyzeJobSync(jobID string) error {
+	s.mu.RLock()
+	cfg := normalizeLLMConfig(s.config)
+	s.mu.RUnlock()
+	if !cfg.Enabled {
+		return fmt.Errorf("LLM service is not enabled")
+	}
+
+	selectedModel, err := resolveModelConfig(cfg, "")
+	if err != nil {
+		return err
+	}
+
+	if s.analysisRepo != nil {
+		if err := s.analysisRepo.Upsert(&model.JobAnalysis{
+			JobID:  jobID,
+			Status: "analyzing",
+			Result: "",
+		}); err != nil {
+			return fmt.Errorf("failed to save analyzing status: %w", err)
+		}
+	}
+
+	return s.doAnalyze(jobID, selectedModel)
+}
+
+// doAnalyze 执行实际的 LLM 分析
+func (s *LLMService) doAnalyze(jobID string, selectedModel config.LLMModelConfig) error {
 	// 1. 聚合作业数据
 	userPrompt, err := s.buildUserPrompt(jobID)
 	if err != nil {
 		log.Printf("analyze job %s: build prompt failed: %v", jobID, err)
 		s.analysisRepo.UpdateStatus(jobID, "failed", err.Error())
-		return
+		return err
 	}
 
 	// 2. 调用LLM
@@ -172,7 +199,7 @@ func (s *LLMService) doAnalyze(jobID string, selectedModel config.LLMModelConfig
 	if err != nil {
 		log.Printf("analyze job %s: call LLM failed: %v", jobID, err)
 		s.analysisRepo.UpdateStatus(jobID, "failed", err.Error())
-		return
+		return err
 	}
 
 	// 3. 解析返回的JSON
@@ -180,7 +207,7 @@ func (s *LLMService) doAnalyze(jobID string, selectedModel config.LLMModelConfig
 	if err != nil {
 		log.Printf("analyze job %s: parse response failed: %v", jobID, err)
 		s.analysisRepo.UpdateStatus(jobID, "failed", err.Error())
-		return
+		return err
 	}
 
 	// 4. 持久化分析结果
@@ -188,12 +215,13 @@ func (s *LLMService) doAnalyze(jobID string, selectedModel config.LLMModelConfig
 	if err != nil {
 		log.Printf("analyze job %s: marshal result failed: %v", jobID, err)
 		s.analysisRepo.UpdateStatus(jobID, "failed", "")
-		return
+		return err
 	}
 	s.analysisRepo.UpdateStatus(jobID, "completed", string(resultJSON))
 
 	// 5. 回写 job_type / framework（仅在原字段为空时）
 	s.backfillJobFields(jobID, result)
+	return nil
 }
 
 // backfillJobFields 将分析结果中的 job_type/framework 回写到 job 记录（仅空字段）

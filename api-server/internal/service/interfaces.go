@@ -107,6 +107,7 @@ type AnalysisWithStatus struct {
 // LLMServiceInterface LLM服务接口
 type LLMServiceInterface interface {
 	AnalyzeJob(jobID string) (*AnalysisWithStatus, error)
+	AnalyzeJobSync(jobID string) error
 	GetAnalysis(jobID string) (*AnalysisWithStatus, error)
 	GetBatchAnalyses(jobIDs []string) (map[string]*JobAnalysisResponse, error)
 	GetConfig() config.LLMConfig
