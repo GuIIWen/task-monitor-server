@@ -22,14 +22,14 @@ type JobGroup struct {
 
 // NPUCardInfo 进程占用的 NPU 卡信息
 type NPUCardInfo struct {
-	NpuID         int                `json:"npuId"`
-	MemoryUsageMB float64            `json:"memoryUsageMb"`
-	Metrics       []model.NPUMetric  `json:"metrics"`
+	NpuID         int               `json:"npuId"`
+	MemoryUsageMB float64           `json:"memoryUsageMb"`
+	Metrics       []model.NPUMetric `json:"metrics"`
 }
 
 // JobDetailResponse 作业详情响应
 type JobDetailResponse struct {
-	Job         model.Job   `json:"job"`
+	Job         model.Job     `json:"job"`
 	NPUCards    []NPUCardInfo `json:"npuCards"`
 	RelatedJobs []model.Job   `json:"relatedJobs"`
 }
@@ -89,12 +89,12 @@ type JobAnalysisIssue struct {
 // JobAnalysisResponse LLM分析结果
 type JobAnalysisResponse struct {
 	Summary            string                        `json:"summary"`
-	TaskType           JobAnalysisTaskType            `json:"taskType"`
-	ModelInfo          *JobAnalysisModelInfo           `json:"modelInfo"`
-	RuntimeAnalysis    *JobAnalysisRuntimeAnalysis     `json:"runtimeAnalysis"`
-	ParameterCheck     *JobAnalysisParameterCheck      `json:"parameterCheck"`
-	ResourceAssessment JobAnalysisResourceAssessment   `json:"resourceAssessment"`
-	Issues             []JobAnalysisIssue             `json:"issues"`
+	TaskType           JobAnalysisTaskType           `json:"taskType"`
+	ModelInfo          *JobAnalysisModelInfo         `json:"modelInfo"`
+	RuntimeAnalysis    *JobAnalysisRuntimeAnalysis   `json:"runtimeAnalysis"`
+	ParameterCheck     *JobAnalysisParameterCheck    `json:"parameterCheck"`
+	ResourceAssessment JobAnalysisResourceAssessment `json:"resourceAssessment"`
+	Issues             []JobAnalysisIssue            `json:"issues"`
 }
 
 // AnalysisWithStatus 带状态的分析结果
@@ -111,6 +111,11 @@ type LLMServiceInterface interface {
 	GetBatchAnalyses(jobIDs []string) (map[string]*JobAnalysisResponse, error)
 	GetConfig() config.LLMConfig
 	UpdateConfig(cfg config.LLMConfig)
+}
+
+// LLMServiceWithModelInterface 支持按模型ID执行分析的扩展接口
+type LLMServiceWithModelInterface interface {
+	AnalyzeJobWithModel(jobID, modelID string) (*AnalysisWithStatus, error)
 }
 
 // JobServiceInterface defines the interface for job service operations

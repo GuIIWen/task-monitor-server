@@ -1,15 +1,15 @@
-import React, { useState, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Collapse, Descriptions, Button, Space, Tag, Modal, Table, Progress, Typography, Spin, Alert, message } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
-import { ArrowLeftOutlined, CodeOutlined, DownOutlined, RightOutlined, RobotOutlined } from '@ant-design/icons';
-import { useQueryClient } from '@tanstack/react-query';
-import { StatusBadge, LoadingSpinner } from '@/components/Common';
-import { useJob, useJobCode, useJobParameters, useJobAnalysis } from '@/hooks';
-import { jobApi } from '@/api';
-import { formatTimestamp, JOB_TYPE_MAP } from '@/utils';
-import type { Job, NPUCardInfo, NPUMetricInfo, JobDetailResponse, JobAnalysis } from '@/types/job';
-
+import React, { useState, useCallback, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { Card, Collapse, Descriptions, Button, Space, Tag, Modal, Table, Progress, Typography, Spin, Alert, message, Select } from "antd";
+import type { ColumnsType } from "antd/es/table";
+import { ArrowLeftOutlined, CodeOutlined, DownOutlined, RightOutlined, RobotOutlined } from "@ant-design/icons";
+import { useQueryClient } from "@tanstack/react-query";
+import { StatusBadge, LoadingSpinner } from "@/components/Common";
+import { useJob, useJobCode, useJobParameters, useJobAnalysis } from "@/hooks";
+import { jobApi } from "@/api";
+import { configApi, type LLMModelConfig } from "@/api/config";
+import { formatTimestamp, JOB_TYPE_MAP } from "@/utils";
+import type { Job, NPUCardInfo, NPUMetricInfo, JobDetailResponse } from "@/types/job";
 // 扁平化的 Chip 行，用于 NPU 卡表格展示
 interface NPUChipRow {
   key: string;
@@ -69,9 +69,42 @@ const JobDetail: React.FC = () => {
   const [childLoadingMap, setChildLoadingMap] = useState<Record<string, boolean>>({});
   const queryClient = useQueryClient();
   const { data: savedAnalysis } = useJobAnalysis(jobId!);
+  const [modelOptions, setModelOptions] = useState<LLMModelConfig[]>([]);
+  const [selectedModelID, setSelectedModelID] = useState<string>();
 
   const analysisLoading = savedAnalysis?.status === 'analyzing';
   const analysisData = savedAnalysis?.status === 'completed' ? savedAnalysis.result : null;
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadModels = async () => {
+      try {
+        const cfg = await configApi.getLLMConfig();
+        if (cancelled) return;
+
+        const models = (cfg.models || []).filter(m => m.enabled);
+        setModelOptions(models);
+
+        if (models.length === 0) {
+          setSelectedModelID(undefined);
+          return;
+        }
+
+        const preferred = models.find(m => m.id === cfg.default_model_id) || models[0];
+        setSelectedModelID(preferred.id);
+      } catch {
+        if (!cancelled) {
+          setModelOptions([]);
+          setSelectedModelID(undefined);
+        }
+      }
+    };
+
+    loadModels();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleExpand = useCallback(async (expanded: boolean, record: Job) => {
     const key = record.jobId;
@@ -95,12 +128,16 @@ const JobDetail: React.FC = () => {
   const handleAnalyze = useCallback(async () => {
     if (!jobId) return;
     try {
-      await jobApi.analyzeJob(jobId);
+      await jobApi.analyzeJob(jobId, selectedModelID ? { modelId: selectedModelID } : undefined);
       queryClient.invalidateQueries({ queryKey: ['jobAnalysis', jobId] });
+      if (selectedModelID) {
+        const selectedModel = modelOptions.find(m => m.id === selectedModelID);
+        message.success('分析完成（模型：' + (selectedModel?.name || selectedModelID) + '）');
+      }
     } catch (e: any) {
       message.error(e?.message || 'AI 分析失败');
     }
-  }, [jobId, queryClient]);
+  }, [jobId, modelOptions, queryClient, selectedModelID]);
 
   if (isLoading) {
     return <LoadingSpinner />;
@@ -435,14 +472,24 @@ const JobDetail: React.FC = () => {
       <Card
         title={<Space><RobotOutlined />AI 智能分析</Space>}
         extra={
-          <Button
-            type="primary"
-            icon={<RobotOutlined />}
-            loading={analysisLoading}
-            onClick={handleAnalyze}
-          >
-            {analysisData ? '重新分析' : '开始分析'}
-          </Button>
+          <Space>
+            <Select
+              style={{ width: 260 }}
+              placeholder="选择分析模型（默认模型）"
+              options={modelOptions.map((m) => ({ label: m.name || m.id, value: m.id }))}
+              value={selectedModelID}
+              onChange={(value) => setSelectedModelID(value)}
+              allowClear
+            />
+            <Button
+              type="primary"
+              icon={<RobotOutlined />}
+              loading={analysisLoading}
+              onClick={handleAnalyze}
+            >
+              {analysisData ? '重新分析' : '开始分析'}
+            </Button>
+          </Space>
         }
       >
         {analysisLoading && (

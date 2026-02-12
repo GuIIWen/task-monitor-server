@@ -101,6 +101,7 @@ func main() {
 		api.GET("/jobs/stats", jobHandler.GetJobStats)
 		api.GET("/jobs/batch-analyze/:batchId", jobHandler.GetBatchAnalyzeProgress)
 		api.GET("/jobs/analyses/batch", jobHandler.GetBatchAnalyses)
+		api.GET("/jobs/analyses/export", jobHandler.ExportAnalysesCSV)
 		api.GET("/jobs/:jobId", jobHandler.GetJobByID)
 		api.GET("/jobs/:jobId/parameters", jobHandler.GetJobParameters)
 		api.GET("/jobs/:jobId/code", jobHandler.GetJobCode)

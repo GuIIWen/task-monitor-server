@@ -57,8 +57,8 @@ export const jobApi = {
   /**
    * AI分析作业
    */
-  analyzeJob: async (jobId: string): Promise<JobAnalysisWithStatus> => {
-    return apiClient.post(`/jobs/${jobId}/analyze`);
+  analyzeJob: async (jobId: string, options?: { modelId?: string }): Promise<JobAnalysisWithStatus> => {
+    return apiClient.post(`/jobs/${jobId}/analyze`, options || {});
   },
 
   /**
@@ -73,7 +73,7 @@ export const jobApi = {
   },
 
   getBatchAnalyzeProgress: async (batchId: string): Promise<{
-    status: string; total: number; current: number; success: number; failed: number;
+    status: 'running' | 'done' | 'cancelled'; total: number; current: number; success: number; failed: number;
     failedItems?: { jobId: string; error: string }[];
   }> => {
     return apiClient.get(`/jobs/batch-analyze/${batchId}`);
@@ -88,5 +88,15 @@ export const jobApi = {
    */
   getBatchAnalyses: async (jobIds: string[]): Promise<Record<string, JobAnalysis>> => {
     return apiClient.get('/jobs/analyses/batch', { params: { jobIds } });
+  },
+
+  /**
+   * 导出分析概览 CSV
+   */
+  exportAnalysesCSV: async (params?: JobListParams & { scope?: 'filtered' | 'page' | 'selected'; jobIds?: string[] }): Promise<Blob> => {
+    return apiClient.get('/jobs/analyses/export', {
+      params,
+      responseType: 'blob',
+    });
   },
 };

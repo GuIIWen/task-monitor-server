@@ -1,11 +1,24 @@
 import apiClient from './client';
 
-export interface LLMConfig {
-  enabled: boolean;
+export interface LLMModelConfig {
+  id: string;
+  name: string;
   endpoint: string;
   api_key: string;
   model: string;
   timeout: number;
+  enabled: boolean;
+}
+
+export interface LLMConfig {
+  enabled: boolean;
+  endpoint?: string;
+  api_key?: string;
+  model?: string;
+  timeout?: number;
+  batch_concurrency?: number;
+  default_model_id?: string;
+  models?: LLMModelConfig[];
 }
 
 export const configApi = {

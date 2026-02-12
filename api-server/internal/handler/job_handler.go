@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"encoding/csv"
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,8 +35,8 @@ type batchAnalyzeState struct {
 }
 
 var (
-	batchStates   = sync.Map{} // map[string]*batchAnalyzeState
-	batchIDSeq    int64
+	batchStates = sync.Map{} // map[string]*batchAnalyzeState
+	batchIDSeq  int64
 )
 
 // JobHandler 作业处理器
@@ -45,14 +47,16 @@ type JobHandler struct {
 }
 
 // NewJobHandler 创建作业处理器
-func NewJobHandler(jobService service.JobServiceInterface, llmService service.LLMServiceInterface, batchConcurrency int) *JobHandler {
-	if batchConcurrency <= 0 {
-		batchConcurrency = 5
+// 兼容旧调用方式：未传 batchConcurrency 时默认 5。
+func NewJobHandler(jobService service.JobServiceInterface, llmService service.LLMServiceInterface, batchConcurrency ...int) *JobHandler {
+	concurrency := 5
+	if len(batchConcurrency) > 0 && batchConcurrency[0] > 0 {
+		concurrency = batchConcurrency[0]
 	}
 	return &JobHandler{
 		jobService:       jobService,
 		llmService:       llmService,
-		batchConcurrency: batchConcurrency,
+		batchConcurrency: concurrency,
 	}
 }
 
@@ -227,8 +231,32 @@ func (h *JobHandler) AnalyzeJob(c *gin.Context) {
 	}
 
 	jobID := c.Param("jobId")
+	var req struct {
+		ModelID string `json:"modelId"`
+	}
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			utils.ErrorResponse(c, 400, "invalid request body: "+err.Error())
+			return
+		}
+	}
 
-	result, err := h.llmService.AnalyzeJob(jobID)
+	modelID := strings.TrimSpace(req.ModelID)
+	var (
+		result *service.AnalysisWithStatus
+		err    error
+	)
+	if modelID != "" {
+		if modelLLM, ok := h.llmService.(service.LLMServiceWithModelInterface); ok {
+			result, err = modelLLM.AnalyzeJobWithModel(jobID, modelID)
+		} else {
+			utils.ErrorResponse(c, 501, "LLM service does not support custom model selection")
+			return
+		}
+	} else {
+		result, err = h.llmService.AnalyzeJob(jobID)
+	}
+
 	if err != nil {
 		utils.ErrorResponse(c, 500, "AI analysis failed: "+err.Error())
 		return
@@ -348,6 +376,196 @@ func (h *JobHandler) GetBatchAnalyses(c *gin.Context) {
 		return
 	}
 	utils.SuccessResponse(c, result)
+}
+
+// ExportAnalysesCSV 导出 AI 分析概览 CSV。
+// scope:
+// - filtered: 导出当前筛选条件下的全部主作业
+// - page: 导出当前页主作业
+// - selected: 导出 jobIds 指定的主作业
+func (h *JobHandler) ExportAnalysesCSV(c *gin.Context) {
+	if h.llmService == nil {
+		utils.ErrorResponse(c, 501, "LLM service is not configured")
+		return
+	}
+
+	scope := c.DefaultQuery("scope", "filtered")
+	nodeID := c.Query("nodeId")
+	statuses := c.QueryArray("status")
+	jobTypes := c.QueryArray("type")
+	frameworks := c.QueryArray("framework")
+	cardCountStrs := c.QueryArray("cardCount")
+	var cardCounts []int
+	for _, s := range cardCountStrs {
+		if s == "unknown" {
+			cardCounts = append(cardCounts, 0)
+		} else if v, err := strconv.Atoi(s); err == nil {
+			cardCounts = append(cardCounts, v)
+		}
+	}
+	sortBy := c.Query("sortBy")
+	sortOrder := c.Query("sortOrder")
+
+	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if err != nil || page < 1 {
+		page = 1
+	}
+	pageSize, err := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
+	if err != nil || pageSize < 1 {
+		pageSize = 20
+	}
+
+	selectedIDs := dedupeStrings(c.QueryArray("jobIds"))
+	if scope == "selected" && len(selectedIDs) == 0 {
+		utils.ErrorResponse(c, 400, "jobIds is required when scope=selected")
+		return
+	}
+
+	queryPage := page
+	queryPageSize := pageSize
+	if scope == "filtered" || scope == "selected" {
+		queryPage = 1
+		queryPageSize = 100000
+	}
+
+	groups, _, err := h.jobService.GetGroupedJobs(nodeID, statuses, jobTypes, frameworks, cardCounts, sortBy, sortOrder, queryPage, queryPageSize)
+	if err != nil {
+		utils.ErrorResponse(c, 500, "Database error: "+err.Error())
+		return
+	}
+
+	if scope == "selected" {
+		idSet := make(map[string]struct{}, len(selectedIDs))
+		for _, id := range selectedIDs {
+			idSet[id] = struct{}{}
+		}
+		filtered := make([]service.JobGroup, 0, len(selectedIDs))
+		for _, g := range groups {
+			if _, ok := idSet[g.MainJob.JobID]; ok {
+				filtered = append(filtered, g)
+			}
+		}
+		groups = filtered
+	}
+
+	jobIDs := make([]string, 0, len(groups))
+	for _, g := range groups {
+		jobIDs = append(jobIDs, g.MainJob.JobID)
+	}
+	analyses, err := h.llmService.GetBatchAnalyses(jobIDs)
+	if err != nil {
+		utils.ErrorResponse(c, 500, "failed to fetch analyses: "+err.Error())
+		return
+	}
+
+	filename := fmt.Sprintf("ai-analysis-overview_%s.csv", time.Now().Format("20060102_150405"))
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	c.Header("Cache-Control", "no-store")
+
+	_, _ = c.Writer.Write([]byte("\xEF\xBB\xBF"))
+	writer := csv.NewWriter(c.Writer)
+	defer writer.Flush()
+
+	_ = writer.Write([]string{
+		"jobId", "jobName", "nodeId", "status", "jobType", "framework", "startTime", "cardCount",
+		"summary", "taskType", "modelName", "runtimeStatus", "npuUtilization", "hbmUtilization", "issuesCount",
+	})
+
+	for _, group := range groups {
+		job := group.MainJob
+		analysis := analyses[job.JobID]
+
+		cardCount := "unknown"
+		if group.CardCount != nil {
+			cardCount = strconv.Itoa(*group.CardCount)
+		}
+
+		summary := ""
+		taskType := ""
+		modelName := ""
+		runtimeStatus := ""
+		npuUtil := ""
+		hbmUtil := ""
+		issuesCount := "0"
+		if analysis != nil {
+			summary = analysis.Summary
+			taskType = analysis.TaskType.Category
+			if analysis.ModelInfo != nil && analysis.ModelInfo.ModelName != nil {
+				modelName = *analysis.ModelInfo.ModelName
+			}
+			if analysis.RuntimeAnalysis != nil {
+				runtimeStatus = analysis.RuntimeAnalysis.Status
+			}
+			npuUtil = analysis.ResourceAssessment.NpuUtilization
+			hbmUtil = analysis.ResourceAssessment.HbmUtilization
+			issuesCount = strconv.Itoa(len(analysis.Issues))
+		}
+
+		_ = writer.Write([]string{
+			sanitizeCSVCell(job.JobID),
+			sanitizeCSVCell(valueOrDash(job.JobName)),
+			sanitizeCSVCell(valueOrDash(job.NodeID)),
+			sanitizeCSVCell(valueOrDash(job.Status)),
+			sanitizeCSVCell(valueOrDash(job.JobType)),
+			sanitizeCSVCell(valueOrDash(job.Framework)),
+			sanitizeCSVCell(formatTimeMs(job.StartTime)),
+			sanitizeCSVCell(cardCount),
+			sanitizeCSVCell(summary),
+			sanitizeCSVCell(taskType),
+			sanitizeCSVCell(modelName),
+			sanitizeCSVCell(runtimeStatus),
+			sanitizeCSVCell(npuUtil),
+			sanitizeCSVCell(hbmUtil),
+			sanitizeCSVCell(issuesCount),
+		})
+	}
+}
+
+func dedupeStrings(items []string) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(items))
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		out = append(out, item)
+	}
+	return out
+}
+
+func valueOrDash[T ~string](v *T) string {
+	if v == nil || *v == "" {
+		return "-"
+	}
+	return string(*v)
+}
+
+func formatTimeMs(v *int64) string {
+	if v == nil || *v <= 0 {
+		return "-"
+	}
+	sec := *v / 1000
+	nsec := (*v % 1000) * int64(time.Millisecond)
+	return time.Unix(sec, nsec).Format("2006-01-02 15:04:05")
+}
+
+func sanitizeCSVCell(v string) string {
+	if v == "" {
+		return ""
+	}
+	if strings.HasPrefix(v, "=") || strings.HasPrefix(v, "+") || strings.HasPrefix(v, "-") || strings.HasPrefix(v, "@") {
+		return "'" + v
+	}
+	return v
 }
 
 // GetBatchAnalyzeProgress 查询批量分析进度
